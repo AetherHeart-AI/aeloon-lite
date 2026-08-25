@@ -65,6 +65,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Verify Release bytes, sizes and GitHub digests
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,10 +78,13 @@ jobs:
           set -euo pipefail
           if [[ "$PRODUCT" == bootstrap ]]; then
             git fetch origin "$BASE_REF"
-            while IFS= read -r pointer; do
-              python3 tools/verify_public_release.py "$pointer" --download-assets
-            done < <(git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" \
+            mapfile -t pointers < <(git diff --name-only --diff-filter=A \
+              "origin/${BASE_REF}...HEAD" \
               | grep -E '^channels/(desktop|runtime)/(stable|prerelease)\.json$')
+            test "${#pointers[@]}" -gt 0
+            for pointer in "${pointers[@]}"; do
+              python3 tools/verify_public_release.py "$pointer" --download-assets
+            done
           else
             python3 tools/verify_public_release.py "$POINTER" --download-assets
           fi
