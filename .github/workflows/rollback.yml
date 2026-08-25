@@ -85,6 +85,9 @@ jobs:
           done
           test "$check_count" -gt 0 || { echo "Rollback PR reported no checks." >&2; exit 1; }
           gh pr checks "$pr" --watch --interval 10
+          if [ "$(gh pr view "$pr" --json state --jq .state)" != MERGED ]; then
+            gh pr merge "$pr" --squash
+          fi
           for attempt in $(seq 1 30); do
             state="$(gh pr view "$pr" --json state --jq .state)"
             [ "$state" = MERGED ] && exit 0
