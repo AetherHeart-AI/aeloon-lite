@@ -1,0 +1,74 @@
+name: Roll back stable channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Product to roll back
+        required: true
+        type: choice
+        options: [desktop, runtime]
+      tag:
+        description: Previously promoted stable tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-${{ inputs.product }}-stable
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Prepare audited stable rollback
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      PRODUCT: ${{ inputs.product }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+      - name: Verify rollback target was previously stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "AELOON_RELEASE_AUTOMATION_TOKEN is required." >&2; exit 1; }
+          record="releases/$PRODUCT/$RELEASE_TAG.json"
+          test -f "$record" || { echo "No immutable release record for $RELEASE_TAG." >&2; exit 1; }
+          case "$PRODUCT:$RELEASE_TAG" in
+            desktop:v[0-9]*.[0-9]*.[0-9]*|runtime:runtime-v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "$RELEASE_TAG is not a stable-version tag for $PRODUCT." >&2; exit 1 ;;
+          esac
+          [[ "$RELEASE_TAG" != *-* ]] || { echo "Prereleases cannot be stable rollback targets." >&2; exit 1; }
+          manifest_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["manifestUrl"])' "$record")"
+          test "$manifest_url" = "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/release-manifest.json"
+          python3 tools/verify_public_release.py "$record"
+          cp "$record" "channels/$PRODUCT/stable.json"
+          git diff --check
+      - name: Open or reuse the rollback PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then echo "$PRODUCT stable already points to $RELEASE_TAG."; exit 0; fi
+          branch="automation/rollback-${PRODUCT}-${RELEASE_TAG}"
+          git config user.name "aeloon-release[bot]"
+          git config user.email "aeloon-release[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add channels
+          git commit -m "release: roll back ${PRODUCT} stable to ${RELEASE_TAG}"
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
+          git push --force-with-lease --set-upstream origin "$branch"
+          pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" \
+              --title "release: roll back ${PRODUCT} stable to ${RELEASE_TAG}" \
+              --body "Audited rollback to a previously promoted immutable stable Release."
+            pr="$(gh pr view "$branch" --json number --jq .number)"
+          fi
+          gh pr merge "$pr" --auto --squash

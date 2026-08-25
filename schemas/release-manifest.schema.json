@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aeloon.dev/schemas/release-manifest-v1.json",
+  "title": "Aeloon immutable release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "version", "tag", "source", "publishedAt", "artifacts"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "product": {"enum": ["desktop", "runtime"]},
+    "version": {"type": "string"},
+    "tag": {"type": "string"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": {"type": "string"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "publishedAt": {"type": "string", "format": "date-time"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "os", "arch", "format", "name", "url", "sha256", "size"],
+        "properties": {
+          "key": {"type": "string"},
+          "os": {"enum": ["darwin", "linux"]},
+          "arch": {"enum": ["arm64", "aarch64", "x86_64"]},
+          "format": {"enum": ["dmg", "deb", "rpm", "tar.gz", "tar.zst"]},
+          "name": {"type": "string"},
+          "url": {"type": "string", "format": "uri"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}

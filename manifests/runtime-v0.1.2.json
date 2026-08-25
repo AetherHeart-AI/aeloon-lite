@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "product": "runtime",
+  "version": "0.1.2",
+  "tag": "runtime-v0.1.2",
+  "source": {
+    "repository": "AetherHeart-AI/aeloon-lite-runtime",
+    "commit": "481e996327b8a60999bd8a6efd881e4478d9a9e3"
+  },
+  "publishedAt": "2026-08-25T14:58:04Z",
+  "artifacts": [
+    {
+      "key": "darwin-aarch64-tar.zst",
+      "os": "darwin",
+      "arch": "aarch64",
+      "format": "tar.zst",
+      "name": "aeloon-runtime-darwin-aarch64.tar.zst",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/runtime-v0.1.2/aeloon-runtime-darwin-aarch64.tar.zst",
+      "sha256": "d8d9755284b560030276a230b31bf64a649dd40f5c8ac3d3be074fadb6ab77e6",
+      "size": 73272651
+    },
+    {
+      "key": "linux-aarch64-tar.zst",
+      "os": "linux",
+      "arch": "aarch64",
+      "format": "tar.zst",
+      "name": "aeloon-runtime-linux-aarch64.tar.zst",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/runtime-v0.1.2/aeloon-runtime-linux-aarch64.tar.zst",
+      "sha256": "bb95d47ff6f2ee2d16dd24080c68b5fdf6e3c15406cf30cf0909a72c8016b4d1",
+      "size": 85563293
+    },
+    {
+      "key": "linux-x86_64-tar.zst",
+      "os": "linux",
+      "arch": "x86_64",
+      "format": "tar.zst",
+      "name": "aeloon-runtime-linux-x86_64.tar.zst",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/runtime-v0.1.2/aeloon-runtime-linux-x86_64.tar.zst",
+      "sha256": "2e9743b7f87b22ee17de9a804cd3d0e823b8f40537ebe751bf3a3efbf59cd4af",
+      "size": 97215272
+    },
+    {
+      "key": "linux-aarch64-tar.gz",
+      "os": "linux",
+      "arch": "aarch64",
+      "format": "tar.gz",
+      "name": "aeloon-runtime-linux-aarch64.tar.gz",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/runtime-v0.1.2/aeloon-runtime-linux-aarch64.tar.gz",
+      "sha256": "888f9e7379a083f9e4b1bdf1b17bdfef4d2110731b43b83f93a6e495d1a53c92",
+      "size": 108274199
+    },
+    {
+      "key": "linux-x86_64-tar.gz",
+      "os": "linux",
+      "arch": "x86_64",
+      "format": "tar.gz",
+      "name": "aeloon-runtime-linux-x86_64.tar.gz",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/runtime-v0.1.2/aeloon-runtime-linux-x86_64.tar.gz",
+      "sha256": "fee0fed6e36ac761f9193461920f587b86bbc4e8b656220ad81546f081ac5313",
+      "size": 123412859
+    }
+  ]
+}

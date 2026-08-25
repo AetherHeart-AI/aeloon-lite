@@ -1,0 +1,198 @@
+name: Promotion acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promotion-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect channel promotion
+    runs-on: ubuntu-22.04
+    outputs:
+      product: ${{ steps.pointer.outputs.product }}
+      pointer: ${{ steps.pointer.outputs.pointer }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: pointer
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "product=none" >> "$GITHUB_OUTPUT"
+            echo "pointer=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch origin "$BASE_REF"
+          mapfile -t pointers < <(git diff --name-only "origin/${BASE_REF}...HEAD" \
+            | grep -E '^channels/(desktop|runtime)/(stable|prerelease)\.json$' || true)
+          if [[ "${#pointers[@]}" -eq 0 ]]; then
+            echo "product=none" >> "$GITHUB_OUTPUT"
+            echo "pointer=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${#pointers[@]}" -gt 1 ]]; then
+            mapfile -t added < <(git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" \
+              | grep -E '^channels/(desktop|runtime)/(stable|prerelease)\.json$' || true)
+            test "${#added[@]}" -eq "${#pointers[@]}" || {
+              echo "Only the initial migration may add multiple channel pointers." >&2
+              exit 1
+            }
+            echo "product=bootstrap" >> "$GITHUB_OUTPUT"
+            echo "pointer=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pointer="${pointers[0]}"
+          echo "product=$(cut -d/ -f2 <<<"$pointer")" >> "$GITHUB_OUTPUT"
+          echo "pointer=$pointer" >> "$GITHUB_OUTPUT"
+
+  verify-assets:
+    name: Re-download every immutable asset
+    needs: detect
+    if: needs.detect.outputs.product != 'none'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify Release bytes, sizes and GitHub digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          POINTER: ${{ needs.detect.outputs.pointer }}
+          PRODUCT: ${{ needs.detect.outputs.product }}
+          BASE_REF: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$PRODUCT" == bootstrap ]]; then
+            git fetch origin "$BASE_REF"
+            while IFS= read -r pointer; do
+              python3 tools/verify_public_release.py "$pointer" --download-assets
+            done < <(git diff --name-only --diff-filter=A "origin/${BASE_REF}...HEAD" \
+              | grep -E '^channels/(desktop|runtime)/(stable|prerelease)\.json$')
+          else
+            python3 tools/verify_public_release.py "$POINTER" --download-assets
+          fi
+
+  desktop-linux:
+    name: Install desktop candidate in ${{ matrix.name }}
+    needs: detect
+    if: needs.detect.outputs.product == 'desktop'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 20.04
+            image: ubuntu:20.04
+            bootstrap: apt-get update && apt-get install -y ca-certificates curl
+          - name: Rocky Linux 8
+            image: rockylinux:8
+            bootstrap: dnf install -y ca-certificates curl
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install prerequisites
+        run: ${{ matrix.bootstrap }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install through the candidate channel pointer
+        env:
+          AELOON_POINTER_FILE: ${{ github.workspace }}/${{ needs.detect.outputs.pointer }}
+        shell: sh
+        run: |
+          set -eu
+          sh install.sh
+          test -x /opt/aeloon-lite/aeloon-lite
+          ! ldd /opt/aeloon-lite/aeloon-lite | grep -F 'not found'
+
+  desktop-macos:
+    name: Download and mount desktop candidate DMG
+    needs: detect
+    if: needs.detect.outputs.product == 'desktop'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify installer selection and mounted application
+        env:
+          AELOON_POINTER_FILE: ${{ github.workspace }}/${{ needs.detect.outputs.pointer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/downloads"
+          sh install.sh --download-only "$RUNNER_TEMP/downloads"
+          dmg="$(find "$RUNNER_TEMP/downloads" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          mount_root="$(mktemp -d /tmp/aeloon-promotion-dmg.XXXXXX)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_root" "$dmg"
+          trap 'hdiutil detach "$mount_root" >/dev/null' EXIT
+          test -x "$mount_root/aeloon-lite.app/Contents/MacOS/aeloon-lite"
+          codesign --verify --deep --strict "$mount_root/aeloon-lite.app"
+
+  runtime-systemd:
+    name: Install public Runtime candidate with systemd
+    needs: detect
+    if: needs.detect.outputs.product == 'runtime'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install and start the promoted bundle
+        env:
+          POINTER: ${{ github.workspace }}/${{ needs.detect.outputs.pointer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            sudo systemctl disable --now aeloon-runtime.service >/dev/null 2>&1 || true
+            sudo find /etc/systemd/system -maxdepth 1 -name aeloon-runtime.service -delete
+            sudo systemctl daemon-reload
+            sudo find /usr/local/bin -maxdepth 1 -name aeloon-runtime-server -delete
+          }
+          trap cleanup EXIT
+          public_ip="$(curl --fail --silent --show-error https://api.ipify.org)"
+          sudo env AELOON_POINTER_FILE="$POINTER" sh install-server.sh \
+            --host "$public_ip" --port 17420
+          systemctl is-active --quiet aeloon-runtime.service
+          sudo /usr/local/bin/aeloon-runtime-server pair --json | python3 -c \
+            'import json,sys; assert json.load(sys.stdin)["pairing_code"].startswith("AELOON1-")'
+
+  promotion-installation-gate:
+    name: Promotion installation gate
+    if: always()
+    needs: [detect, verify-assets, desktop-linux, desktop-macos, runtime-systemd]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require the applicable acceptance suite
+        env:
+          PRODUCT: ${{ needs.detect.outputs.product }}
+          VERIFY: ${{ needs.verify-assets.result }}
+          DESKTOP_LINUX: ${{ needs.desktop-linux.result }}
+          DESKTOP_MACOS: ${{ needs.desktop-macos.result }}
+          RUNTIME_SYSTEMD: ${{ needs.runtime-systemd.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$PRODUCT" == none ]]; then exit 0; fi
+          test "$VERIFY" = success
+          if [[ "$PRODUCT" == bootstrap ]]; then
+            exit 0
+          elif [[ "$PRODUCT" == desktop ]]; then
+            test "$DESKTOP_LINUX" = success
+            test "$DESKTOP_MACOS" = success
+          elif [[ "$PRODUCT" == runtime ]]; then
+            test "$RUNTIME_SYSTEMD" = success
+          else
+            echo "Channel detection failed." >&2
+            exit 1
+          fi

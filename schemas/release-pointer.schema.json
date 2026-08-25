@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aeloon.dev/schemas/release-pointer-v1.json",
+  "title": "Aeloon release channel pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestUrl", "manifestSha256"],
+  "properties": {
+    "manifestUrl": {"type": "string", "format": "uri"},
+    "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
