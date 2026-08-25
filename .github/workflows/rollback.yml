@@ -63,7 +63,12 @@ jobs:
           git add channels
           git commit -m "release: roll back ${PRODUCT} stable to ${RELEASE_TAG}"
           git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
-          git push --force-with-lease --set-upstream origin "$branch"
+          if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null && \
+             test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse "refs/remotes/origin/$branch^{tree}")"; then
+            echo "The deterministic remote branch already contains the desired tree."
+          else
+            git push --force-with-lease --set-upstream origin "$branch"
+          fi
           pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$pr" ]; then
             gh pr create --base main --head "$branch" \
@@ -72,3 +77,18 @@ jobs:
             pr="$(gh pr view "$branch" --json number --jq .number)"
           fi
           gh pr merge "$pr" --auto --squash
+          check_count=0
+          for attempt in $(seq 1 30); do
+            check_count="$(gh pr view "$pr" --json statusCheckRollup --jq '.statusCheckRollup | length')"
+            [ "$check_count" -gt 0 ] && break
+            sleep 2
+          done
+          test "$check_count" -gt 0 || { echo "Rollback PR reported no checks." >&2; exit 1; }
+          gh pr checks "$pr" --watch --interval 10
+          for attempt in $(seq 1 30); do
+            state="$(gh pr view "$pr" --json state --jq .state)"
+            [ "$state" = MERGED ] && exit 0
+            sleep 2
+          done
+          echo "Rollback PR checks passed but the PR did not merge." >&2
+          exit 1

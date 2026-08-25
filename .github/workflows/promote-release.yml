@@ -99,7 +99,12 @@ jobs:
           git add channels releases
           git commit -m "release: promote ${PRODUCT} ${RELEASE_TAG} to ${CHANNEL}"
           git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
-          git push --force-with-lease --set-upstream origin "$branch"
+          if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null && \
+             test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse "refs/remotes/origin/$branch^{tree}")"; then
+            echo "The deterministic remote branch already contains the desired tree."
+          else
+            git push --force-with-lease --set-upstream origin "$branch"
+          fi
           pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$pr" ]; then
             gh pr create --base main --head "$branch" \
@@ -116,6 +121,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          check_count=0
+          for attempt in $(seq 1 30); do
+            check_count="$(gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '.statusCheckRollup | length')"
+            [ "$check_count" -gt 0 ] && break
+            sleep 2
+          done
+          test "$check_count" -gt 0 || { echo "Promotion PR reported no checks." >&2; exit 1; }
           gh pr checks "$PR_NUMBER" --watch --interval 10
           for attempt in $(seq 1 30); do
             state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
