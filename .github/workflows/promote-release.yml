@@ -1,0 +1,137 @@
+name: Promote immutable release
+
+on:
+  repository_dispatch:
+    types: [promote-release]
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Product to promote
+        required: true
+        type: choice
+        options: [desktop, runtime]
+      tag:
+        description: Immutable public Release tag
+        required: true
+        type: string
+      channel:
+        description: Destination channel
+        required: true
+        type: choice
+        options: [stable, prerelease]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-${{ github.event.client_payload.product || inputs.product }}-${{ github.event.client_payload.channel || inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Prepare audited channel promotion
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      PRODUCT: ${{ github.event.client_payload.product || inputs.product }}
+      RELEASE_TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+      CHANNEL: ${{ github.event.client_payload.channel || inputs.channel }}
+      GH_TOKEN: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+      - name: Verify the immutable Release and prepare pointers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "AELOON_RELEASE_AUTOMATION_TOKEN is required." >&2; exit 1; }
+          case "$PRODUCT:$CHANNEL" in
+            desktop:stable|desktop:prerelease|runtime:stable|runtime:prerelease) ;;
+            *) echo "Invalid product/channel: $PRODUCT/$CHANNEL" >&2; exit 2 ;;
+          esac
+          case "$PRODUCT:$RELEASE_TAG" in
+            desktop:v*) ;;
+            runtime:runtime-v*) ;;
+            *) echo "Release tag does not match product." >&2; exit 2 ;;
+          esac
+          scratch="$RUNNER_TEMP/promotion"
+          mkdir -p "$scratch"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern release-manifest.json --dir "$scratch"
+          python3 tools/release_manifest.py validate-release "$scratch/release-manifest.json"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["product"])' "$scratch/release-manifest.json")" = "$PRODUCT"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$scratch/release-manifest.json")" = "$RELEASE_TAG"
+          current="channels/$PRODUCT/$CHANNEL.json"
+          python3 tools/release_manifest.py check-promotion \
+            --manifest "$scratch/release-manifest.json" --channel "$CHANNEL" --current "$current"
+          python3 tools/release_manifest.py pointer \
+            --manifest "$scratch/release-manifest.json" --channel "$CHANNEL" --output "$scratch/pointer.json"
+          python3 tools/verify_public_release.py "$scratch/pointer.json"
+          record="releases/$PRODUCT/$RELEASE_TAG.json"
+          if [ -f "$record" ]; then
+            cmp "$record" "$scratch/pointer.json" || {
+              echo "Immutable release record already exists with different bytes: $record" >&2
+              exit 1
+            }
+          else
+            mkdir -p "$(dirname "$record")"
+            cp "$scratch/pointer.json" "$record"
+          fi
+          mkdir -p "$(dirname "$current")"
+          cp "$scratch/pointer.json" "$current"
+          git diff --check
+      - name: Open or reuse the promotion PR
+        id: promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "$PRODUCT $CHANNEL already points to $RELEASE_TAG."
+            echo "pr=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="automation/promote-${PRODUCT}-${CHANNEL}-${RELEASE_TAG}"
+          git config user.name "aeloon-release[bot]"
+          git config user.email "aeloon-release[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add channels releases
+          git commit -m "release: promote ${PRODUCT} ${RELEASE_TAG} to ${CHANNEL}"
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
+          git push --force-with-lease --set-upstream origin "$branch"
+          pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" \
+              --title "release: promote ${PRODUCT} ${RELEASE_TAG} to ${CHANNEL}" \
+              --body "Automated immutable Release verification and channel promotion."
+            pr="$(gh pr view "$branch" --json number --jq .number)"
+          fi
+          gh pr merge "$pr" --auto --squash
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+      - name: Wait for the audited pointer to merge
+        if: steps.promotion.outputs.pr != ''
+        env:
+          PR_NUMBER: ${{ steps.promotion.outputs.pr }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr checks "$PR_NUMBER" --watch --interval 10
+          for attempt in $(seq 1 30); do
+            state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
+            [ "$state" = MERGED ] && exit 0
+            sleep 2
+          done
+          echo "Promotion PR checks passed but the PR did not merge." >&2
+          exit 1
+      - name: Notify UI of a promoted stable Runtime
+        if: env.PRODUCT == 'runtime' && env.CHANNEL == 'stable'
+        env:
+          UI_TOKEN: ${{ secrets.AELOON_UI_REPOSITORY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${UI_TOKEN:-}" || { echo "AELOON_UI_REPOSITORY_TOKEN is required." >&2; exit 1; }
+          GH_TOKEN="$UI_TOKEN" gh api --method POST repos/AetherHeart-AI/aeloon-lite-ui/dispatches \
+            -f event_type=runtime-release \
+            -f "client_payload[release_tag]=$RELEASE_TAG"

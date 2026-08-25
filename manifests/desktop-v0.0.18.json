@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "product": "desktop",
+  "version": "0.0.18",
+  "tag": "v0.0.18",
+  "source": {
+    "repository": "AetherHeart-AI/aeloon-lite-ui",
+    "commit": "e1dd8b697a6c3ca59e19297fe79d1e5fbd5e9f74"
+  },
+  "publishedAt": "2026-08-25T15:55:57Z",
+  "artifacts": [
+    {
+      "key": "darwin-arm64-dmg",
+      "os": "darwin",
+      "arch": "arm64",
+      "format": "dmg",
+      "name": "aeloon-lite-0.0.18-arm64.dmg",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/v0.0.18/aeloon-lite-0.0.18-arm64.dmg",
+      "sha256": "a29d0ed7291494d95381a93eb89899340a1460b464914ae5a927bed460a84015",
+      "size": 222490610
+    },
+    {
+      "key": "linux-arm64-deb",
+      "os": "linux",
+      "arch": "arm64",
+      "format": "deb",
+      "name": "aeloon-lite-0.0.18-arm64.deb",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/v0.0.18/aeloon-lite-0.0.18-arm64.deb",
+      "sha256": "b02946d1e8f148335dc77204790374971826594399938fbdb936f9f3fa4122bc",
+      "size": 179752656
+    },
+    {
+      "key": "linux-arm64-rpm",
+      "os": "linux",
+      "arch": "arm64",
+      "format": "rpm",
+      "name": "aeloon-lite-0.0.18-arm64.rpm",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/v0.0.18/aeloon-lite-0.0.18-arm64.rpm",
+      "sha256": "346645ba24e1fbec95b5e8cfec0bca8550fb3be3782bc8b92b9640e90499699e",
+      "size": 135582717
+    },
+    {
+      "key": "linux-x86_64-deb",
+      "os": "linux",
+      "arch": "x86_64",
+      "format": "deb",
+      "name": "aeloon-lite-0.0.18-x86_64.deb",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/v0.0.18/aeloon-lite-0.0.18-x86_64.deb",
+      "sha256": "b115e5933210472e277880a18d14b6ba1fe438bc828a507c7113130c654d86bb",
+      "size": 200871472
+    },
+    {
+      "key": "linux-x86_64-rpm",
+      "os": "linux",
+      "arch": "x86_64",
+      "format": "rpm",
+      "name": "aeloon-lite-0.0.18-x86_64.rpm",
+      "url": "https://github.com/AetherHeart-AI/aeloon-lite/releases/download/v0.0.18/aeloon-lite-0.0.18-x86_64.rpm",
+      "sha256": "39e542dd3be9dd8fa7d7f2f00c03e7b47e87b8f7daf63754bad745302ae54fa6",
+      "size": 150725689
+    }
+  ]
+}
