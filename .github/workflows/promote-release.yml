@@ -129,6 +129,9 @@ jobs:
           done
           test "$check_count" -gt 0 || { echo "Promotion PR reported no checks." >&2; exit 1; }
           gh pr checks "$PR_NUMBER" --watch --interval 10
+          if [ "$(gh pr view "$PR_NUMBER" --json state --jq .state)" != MERGED ]; then
+            gh pr merge "$PR_NUMBER" --squash
+          fi
           for attempt in $(seq 1 30); do
             state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
             [ "$state" = MERGED ] && exit 0
