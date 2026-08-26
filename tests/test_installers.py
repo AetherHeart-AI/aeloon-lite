@@ -165,6 +165,8 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("repository_dispatch", script)
         self.assertNotIn("release-manifest", script)
         self.assertNotIn("prerelease", script)
+        self.assertNotIn("gh release create", script)
+        self.assertIn('gh api --method POST "repos/$DISTRIBUTION_REPOSITORY/releases"', script)
         self.assertIn("SHA256SUMS", script)
         self.assertIn("contents/$channel_path", script)
 
