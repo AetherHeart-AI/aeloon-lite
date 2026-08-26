@@ -35,7 +35,15 @@ class ReleaseManifestTests(unittest.TestCase):
             pointer = release_manifest.read_json(pointer_path)
             release_manifest.validate_pointer(pointer)
             self.assertEqual(pointer["manifestSha256"], release_manifest.sha256(manifest_path))
-            self.assertEqual(pointer, release_manifest.read_json(ROOT / "channels" / product / "stable.json"))
+
+        for product in ("desktop", "runtime"):
+            stable = release_manifest.read_json(ROOT / "channels" / product / "stable.json")
+            release_manifest.validate_pointer(stable)
+            tag = stable["manifestUrl"].split("/releases/download/", 1)[1].split("/", 1)[0]
+            self.assertEqual(
+                stable,
+                release_manifest.read_json(ROOT / "releases" / product / f"{tag}.json"),
+            )
 
     def test_rejects_redirected_artifact_and_duplicate_key(self) -> None:
         manifest = release_manifest.read_json(ROOT / "manifests" / "desktop-v0.0.18.json")
@@ -69,14 +77,14 @@ class ReleaseManifestTests(unittest.TestCase):
                 release_manifest.read_json(path)
 
     def test_repeating_the_same_promotion_is_idempotent(self) -> None:
-        manifest = ROOT / "manifests" / "desktop-v0.0.18.json"
+        manifest = ROOT / "manifests" / "runtime-v0.1.2.json"
         args = type(
             "Args",
             (),
             {
                 "manifest": manifest,
                 "channel": "stable",
-                "current": ROOT / "channels" / "desktop" / "stable.json",
+                "current": ROOT / "channels" / "runtime" / "stable.json",
             },
         )()
         release_manifest.check_promotion(args)
