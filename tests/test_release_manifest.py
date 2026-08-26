@@ -16,6 +16,13 @@ SPEC.loader.exec_module(release_manifest)
 
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_publish_script_finds_draft_release_by_tag_name(self) -> None:
+        script = (ROOT / "tools" / "publish_release.sh").read_text()
+
+        self.assertIn("releases?per_page=100", script)
+        self.assertIn('select(.tag_name == \\"$tag\\")', script)
+        self.assertNotIn("releases/tags/$tag", script)
+
     def test_seed_manifests_and_pointers_are_valid(self) -> None:
         pairs = (
             ("desktop", "v0.0.18", ROOT / "manifests" / "desktop-v0.0.18.json"),

@@ -50,9 +50,11 @@ python3 "$script_root/tools/release_manifest.py" build \
   --published-at "$published_at" --asset-dir "$asset_dir" --output "$manifest"
 
 release_json="$scratch/release.json"
-if gh release view "$tag" --repo AetherHeart-AI/aeloon-lite \
-  --json isDraft,isPrerelease,assets > "$release_json" 2>/dev/null; then
-  if [[ "$(jq -r .isDraft "$release_json")" != true ]]; then
+release_id="$(gh api "repos/AetherHeart-AI/aeloon-lite/releases?per_page=100" \
+  --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
+if [[ -n "$release_id" ]]; then
+  gh api "repos/AetherHeart-AI/aeloon-lite/releases/$release_id" > "$release_json"
+  if [[ "$(jq -r .draft "$release_json")" != true ]]; then
     gh release download "$tag" --repo AetherHeart-AI/aeloon-lite \
       --pattern release-manifest.json --dir "$scratch/published"
     python3 "$script_root/tools/release_manifest.py" compare-release \
@@ -73,9 +75,11 @@ else
     --target main --title "Aeloon ${product} ${tag}" \
     --notes "Immutable Aeloon ${product} release built from ${source_repository}@${source_commit}." \
     --draft
+  release_id="$(gh api "repos/AetherHeart-AI/aeloon-lite/releases?per_page=100" \
+    --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
+  [[ -n "$release_id" ]] || { echo "Draft release $tag was not found after creation." >&2; exit 1; }
 fi
 
-release_id="$(gh api "repos/AetherHeart-AI/aeloon-lite/releases/tags/$tag" --jq .id)"
 while IFS= read -r asset_id; do
   gh api --method DELETE "repos/AetherHeart-AI/aeloon-lite/releases/assets/$asset_id"
 done < <(gh api "repos/AetherHeart-AI/aeloon-lite/releases/$release_id" --jq '.assets[].id')
