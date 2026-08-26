@@ -1,9 +1,9 @@
 # aeloon-release-v1
 # product=desktop
-# version=0.0.19
-# source=AetherHeart-AI/aeloon-lite-ui@2a552eac09aefe326228ddbc60ae8223311d9ee7
-647feebdd45da1cbba9560de03af107c3901f04b20c385bd9f0a649c4e067e6b  aeloon-lite-0.0.19-arm64.deb
-0d7ea29c173555bc32dc9dad58724443d9ca2f5e2afa2c5cbf20ba79c7d00491  aeloon-lite-0.0.19-arm64.dmg
-4330995346adb6c56ab2106b85c1cb9fbcf8695d30feb61b90b26208d1c621ad  aeloon-lite-0.0.19-arm64.rpm
-a75e367acaf2fee54b4d4707fd9213a1bfd486c631aea6b93a9ec5c7683fda06  aeloon-lite-0.0.19-x86_64.deb
-6a12204dfba4ecbb5bcfd794f1a5ef0764a6ec96d2745662ea96b6712f934ac2  aeloon-lite-0.0.19-x86_64.rpm
+# version=0.0.20
+# source=AetherHeart-AI/aeloon-lite-ui@f3e8105ffa214a19ac5a5c7e948c72c336954518
+b004a6a9f3658a965a9e672a4ae6771f9212823a7a737030a19a272a587cdbd1  aeloon-lite-0.0.20-arm64.deb
+7fc4054032c8f93103ed82890922f496cfcad3cd8ebf55b3e0a4adeb5ac34430  aeloon-lite-0.0.20-arm64.dmg
+1a9ca9bb4e2dcacacc43c4491f18db3ce715b1577bf2326f9a9010bb79303c08  aeloon-lite-0.0.20-arm64.rpm
+351ab423a3f1608750910e7b77dae7ea49f8cf5452ddc9dee8809decb86c2992  aeloon-lite-0.0.20-x86_64.deb
+63205e77c2e1093d8becf85e6551e141367635414f01119c296c98b768e9f600  aeloon-lite-0.0.20-x86_64.rpm
