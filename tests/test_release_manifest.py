@@ -16,6 +16,15 @@ SPEC.loader.exec_module(release_manifest)
 
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_promotion_uses_the_ephemeral_github_actions_token(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "promote-release.yml").read_text()
+
+        self.assertIn("contents: write", workflow)
+        self.assertIn("pull-requests: write", workflow)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("token: ${{ github.token }}", workflow)
+        self.assertNotIn("AELOON_RELEASE_AUTOMATION_TOKEN", workflow)
+
     def test_publish_script_finds_draft_release_by_tag_name(self) -> None:
         script = (ROOT / "tools" / "publish_release.sh").read_text()
 

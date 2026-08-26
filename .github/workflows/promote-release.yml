@@ -21,7 +21,8 @@ on:
         options: [stable, prerelease]
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: promote-${{ github.event.client_payload.product || inputs.product }}-${{ github.event.client_payload.channel || inputs.channel }}
@@ -36,17 +37,17 @@ jobs:
       PRODUCT: ${{ github.event.client_payload.product || inputs.product }}
       RELEASE_TAG: ${{ github.event.client_payload.tag || inputs.tag }}
       CHANNEL: ${{ github.event.client_payload.channel || inputs.channel }}
-      GH_TOKEN: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ secrets.AELOON_RELEASE_AUTOMATION_TOKEN }}
+          token: ${{ github.token }}
       - name: Verify the immutable Release and prepare pointers
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${GH_TOKEN:-}" || { echo "AELOON_RELEASE_AUTOMATION_TOKEN is required." >&2; exit 1; }
+          test -n "${GH_TOKEN:-}" || { echo "GitHub Actions token is required." >&2; exit 1; }
           case "$PRODUCT:$CHANNEL" in
             desktop:stable|desktop:prerelease|runtime:stable|runtime:prerelease) ;;
             *) echo "Invalid product/channel: $PRODUCT/$CHANNEL" >&2; exit 2 ;;
