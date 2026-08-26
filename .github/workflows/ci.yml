@@ -17,53 +17,16 @@ jobs:
   distribution-gate:
     name: Distribution gate
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-      - name: Validate scripts, manifests and pointers
-        shell: bash
+          persist-credentials: false
+      - name: Validate the stable installers and publisher
         run: |
           set -euo pipefail
           sh -n install.sh
           sh -n install-server.sh
+          bash -n tools/publish_release.sh
           python3 -m unittest discover -s tests -v
-          for manifest in manifests/*.json; do
-            python3 tools/release_manifest.py validate-release "$manifest"
-          done
-          for pointer in channels/*/*.json; do
-            product="$(cut -d/ -f2 <<<"$pointer")"
-            channel="$(basename "$pointer" .json)"
-            python3 tools/release_manifest.py validate-pointer "$pointer" \
-              --product "$product" --channel "$channel"
-          done
-          for pointer in releases/*/*.json; do
-            product="$(cut -d/ -f2 <<<"$pointer")"
-            python3 tools/release_manifest.py validate-pointer "$pointer" --product "$product"
-          done
           git diff --check
-      - name: Verify channel pointers against immutable public Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for pointer in channels/*/*.json; do
-            python3 tools/verify_public_release.py "$pointer"
-          done
-      - name: Enforce append-only version records
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin "$BASE_REF"
-          changes="$(git diff --name-status "origin/${BASE_REF}...HEAD" -- releases/)"
-          printf '%s\n' "$changes"
-          if printf '%s\n' "$changes" | awk 'NF && $1 != "A" { exit 1 }'; then
-            exit 0
-          fi
-          echo "Existing release records are append-only and cannot be modified or deleted." >&2
-          exit 1

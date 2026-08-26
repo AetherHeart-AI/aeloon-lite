@@ -1,121 +1,167 @@
 #!/bin/bash
 set -euo pipefail
 
+readonly DISTRIBUTION_REPOSITORY="AetherHeart-AI/aeloon-lite"
+
 usage() {
   cat <<'EOF'
 Usage: publish_release.sh --product desktop|runtime --version VERSION
-       --channel stable|prerelease --source-repository OWNER/REPO
-       --source-commit SHA --published-at ISO8601 --asset-dir DIRECTORY
+       --source-commit SHA --asset-dir DIRECTORY
 EOF
 }
 
 product=""
 version=""
-channel=""
-source_repository=""
 source_commit=""
-published_at=""
 asset_dir=""
 while (($#)); do
   case "$1" in
     --product) product=$2; shift 2 ;;
     --version) version=$2; shift 2 ;;
-    --channel) channel=$2; shift 2 ;;
-    --source-repository) source_repository=$2; shift 2 ;;
     --source-commit) source_commit=$2; shift 2 ;;
-    --published-at) published_at=$2; shift 2 ;;
     --asset-dir) asset_dir=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-for value in product version channel source_repository source_commit published_at asset_dir; do
-  [[ -n "${!value}" ]] || { echo "Missing --${value//_/-}" >&2; exit 2; }
-done
-[[ -n "${GH_TOKEN:-}" ]] || { echo "GH_TOKEN with public distribution write access is required." >&2; exit 1; }
-[[ "$channel" == stable || "$channel" == prerelease ]] || { echo "Invalid channel: $channel" >&2; exit 2; }
+[[ "$product" == desktop || "$product" == runtime ]] || { echo "Invalid product: $product" >&2; exit 2; }
+[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+  echo "Only stable semantic versions are supported: $version" >&2
+  exit 2
+}
+[[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid source commit: $source_commit" >&2; exit 2; }
 [[ -d "$asset_dir" ]] || { echo "Asset directory does not exist: $asset_dir" >&2; exit 2; }
+[[ -n "${GH_TOKEN:-}" ]] || { echo "AELOON_RELEASE_TOKEN is required through GH_TOKEN." >&2; exit 1; }
 
-script_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-tag_prefix=v
-[[ "$product" == desktop ]] || tag_prefix=runtime-v
-tag="${tag_prefix}${version}"
+if [[ "$product" == desktop ]]; then
+  tag="v$version"
+  source_repository="AetherHeart-AI/aeloon-lite-ui"
+  channel_path="channels/desktop/stable"
+  expected=(
+    "aeloon-lite-$version-arm64.deb"
+    "aeloon-lite-$version-arm64.dmg"
+    "aeloon-lite-$version-arm64.rpm"
+    "aeloon-lite-$version-x86_64.deb"
+    "aeloon-lite-$version-x86_64.rpm"
+  )
+else
+  tag="runtime-v$version"
+  source_repository="AetherHeart-AI/aeloon-lite-runtime"
+  channel_path="channels/runtime/stable"
+  expected=(
+    "aeloon-runtime-darwin-aarch64.tar.zst"
+    "aeloon-runtime-linux-aarch64.tar.gz"
+    "aeloon-runtime-linux-aarch64.tar.zst"
+    "aeloon-runtime-linux-x86_64.tar.gz"
+    "aeloon-runtime-linux-x86_64.tar.zst"
+  )
+fi
+
+declare -A expected_names=()
+for name in "${expected[@]}"; do
+  [[ -f "$asset_dir/$name" ]] || { echo "Missing release asset: $name" >&2; exit 1; }
+  expected_names["$name"]=1
+done
+while IFS= read -r name; do
+  [[ -n "${expected_names[$name]+present}" ]] || { echo "Unexpected release asset: $name" >&2; exit 1; }
+done < <(find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
+[[ "$(find "$asset_dir" -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}" ]] || {
+  echo "Release asset count does not match the fixed $product contract." >&2
+  exit 1
+}
+
 scratch="$(mktemp -d "${RUNNER_TEMP:-/tmp}/aeloon-publish.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
-manifest="$scratch/release-manifest.json"
-python3 "$script_root/tools/release_manifest.py" build \
-  --product "$product" --version "$version" \
-  --source-repository "$source_repository" --source-commit "$source_commit" \
-  --published-at "$published_at" --asset-dir "$asset_dir" --output "$manifest"
+checksums="$scratch/SHA256SUMS"
+{
+  echo "# aeloon-release-v1"
+  echo "# product=$product"
+  echo "# version=$version"
+  echo "# source=$source_repository@$source_commit"
+  while IFS= read -r name; do
+    printf '%s  %s\n' "$(sha256sum "$asset_dir/$name" | awk '{print $1}')" "$name"
+  done < <(printf '%s\n' "${expected[@]}" | sort)
+} > "$checksums"
 
-release_json="$scratch/release.json"
-release_id="$(gh api "repos/AetherHeart-AI/aeloon-lite/releases?per_page=100" \
+release_id="$(gh api "repos/$DISTRIBUTION_REPOSITORY/releases?per_page=100" \
   --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
-if [[ -n "$release_id" ]]; then
-  gh api "repos/AetherHeart-AI/aeloon-lite/releases/$release_id" > "$release_json"
-  if [[ "$(jq -r .draft "$release_json")" != true ]]; then
-    gh release download "$tag" --repo AetherHeart-AI/aeloon-lite \
-      --pattern release-manifest.json --dir "$scratch/published"
-    python3 "$script_root/tools/release_manifest.py" compare-release \
-      "$manifest" "$scratch/published/release-manifest.json"
-    python3 "$script_root/tools/release_manifest.py" pointer \
-      --manifest "$scratch/published/release-manifest.json" --channel "$channel" \
-      --output "$scratch/pointer.json"
-    python3 "$script_root/tools/verify_public_release.py" "$scratch/pointer.json"
-    echo "Published $product release $tag already contains the exact source and artifacts."
-    gh api --method POST repos/AetherHeart-AI/aeloon-lite/dispatches \
-      -f event_type=promote-release \
-      -f "client_payload[product]=$product" -f "client_payload[tag]=$tag" \
-      -f "client_payload[channel]=$channel"
-    exit 0
-  fi
-else
-  gh release create "$tag" --repo AetherHeart-AI/aeloon-lite \
-    --target main --title "Aeloon ${product} ${tag}" \
-    --notes "Immutable Aeloon ${product} release built from ${source_repository}@${source_commit}." \
-    --draft
-  release_id="$(gh api "repos/AetherHeart-AI/aeloon-lite/releases?per_page=100" \
+if [[ -z "$release_id" ]]; then
+  gh release create "$tag" --repo "$DISTRIBUTION_REPOSITORY" --target main --draft \
+    --title "Aeloon $product $tag" \
+    --notes "Stable Aeloon $product release built from $source_repository@$source_commit."
+  release_id="$(gh api "repos/$DISTRIBUTION_REPOSITORY/releases?per_page=100" \
     --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
   [[ -n "$release_id" ]] || { echo "Draft release $tag was not found after creation." >&2; exit 1; }
 fi
 
-while IFS= read -r asset_id; do
-  gh api --method DELETE "repos/AetherHeart-AI/aeloon-lite/releases/assets/$asset_id"
-done < <(gh api "repos/AetherHeart-AI/aeloon-lite/releases/$release_id" --jq '.assets[].id')
+release_json="$scratch/release.json"
+gh api "repos/$DISTRIBUTION_REPOSITORY/releases/$release_id" > "$release_json"
+is_draft="$(jq -r .draft "$release_json")"
 
-mapfile -t assets < <(python3 - "$manifest" "$asset_dir" <<'PY'
-import json
-import sys
-from pathlib import Path
-manifest = json.load(open(sys.argv[1]))
-root = Path(sys.argv[2])
-for artifact in manifest["artifacts"]:
-    print(root / artifact["name"])
-PY
-)
-gh release upload "$tag" --repo AetherHeart-AI/aeloon-lite "${assets[@]}" "$manifest"
+verify_remote_assets() {
+  gh api "repos/$DISTRIBUTION_REPOSITORY/releases/$release_id" > "$release_json"
+  mapfile -t remote_names < <(jq -r '.assets[].name' "$release_json" | sort)
+  mapfile -t expected_remote < <(printf '%s\n' "${expected[@]}" SHA256SUMS | sort)
+  [[ "${remote_names[*]}" == "${expected_remote[*]}" ]] || {
+    echo "Release $tag does not contain the exact expected asset set." >&2
+    printf 'Expected: %s\nActual: %s\n' "${expected_remote[*]}" "${remote_names[*]}" >&2
+    return 1
+  }
+  for path in "${expected[@]}"; do
+    local_file="$asset_dir/$path"
+    local_digest="sha256:$(sha256sum "$local_file" | awk '{print $1}')"
+    remote_digest="$(jq -r --arg name "$path" '.assets[] | select(.name == $name) | .digest' "$release_json")"
+    [[ "$remote_digest" == "$local_digest" ]] || { echo "Release digest mismatch for $path" >&2; return 1; }
+  done
+  local_digest="sha256:$(sha256sum "$checksums" | awk '{print $1}')"
+  remote_digest="$(jq -r '.assets[] | select(.name == "SHA256SUMS") | .digest' "$release_json")"
+  [[ "$remote_digest" == "$local_digest" ]] || { echo "Release digest mismatch for SHA256SUMS" >&2; return 1; }
+}
 
-expected_count=$((${#assets[@]} + 1))
-actual_count="$(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite --json assets --jq '.assets | length')"
-[[ "$actual_count" -eq "$expected_count" ]] || { echo "Draft release asset count mismatch." >&2; exit 1; }
-for path in "${assets[@]}" "$manifest"; do
-  name="$(basename "$path")"
-  digest="sha256:$(sha256sum "$path" | cut -d ' ' -f 1)"
-  remote="$(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite \
-    --json assets --jq ".assets[] | select(.name == \"$name\") | .digest")"
-  [[ "$remote" == "$digest" ]] || { echo "Draft digest mismatch for $name" >&2; exit 1; }
-done
-
-if [[ "$channel" == prerelease ]]; then
-  gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --prerelease --latest=false
+if [[ "$is_draft" == true ]]; then
+  mapfile -t existing_names < <(jq -r '.assets[].name' "$release_json")
+  for name in "${existing_names[@]}"; do
+    if [[ "$name" != SHA256SUMS && -z "${expected_names[$name]+present}" ]]; then
+      echo "Draft $tag contains unexpected asset $name; remove it or use a new version." >&2
+      exit 1
+    fi
+  done
+  upload_paths=()
+  for name in "${expected[@]}"; do upload_paths+=("$asset_dir/$name"); done
+  upload_paths+=("$checksums")
+  gh release upload "$tag" --repo "$DISTRIBUTION_REPOSITORY" --clobber "${upload_paths[@]}"
+  verify_remote_assets
+  gh release edit "$tag" --repo "$DISTRIBUTION_REPOSITORY" --draft=false --latest
 else
-  gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --prerelease=false --latest
+  verify_remote_assets || {
+    echo "Published release $tag differs from this build; bump the version." >&2
+    exit 1
+  }
 fi
-python3 "$script_root/tools/release_manifest.py" pointer \
-  --manifest "$manifest" --channel "$channel" --output "$scratch/pointer.json"
-python3 "$script_root/tools/verify_public_release.py" "$scratch/pointer.json"
-gh api --method POST repos/AetherHeart-AI/aeloon-lite/dispatches \
-  -f event_type=promote-release \
-  -f "client_payload[product]=$product" -f "client_payload[tag]=$tag" \
-  -f "client_payload[channel]=$channel"
+
+contents_json="$scratch/channel.json"
+current_channel="$scratch/current-stable"
+file_sha=""
+if gh api "repos/$DISTRIBUTION_REPOSITORY/contents/$channel_path?ref=main" > "$contents_json" 2>/dev/null; then
+  jq -r .content "$contents_json" | base64 --decode > "$current_channel"
+  if cmp -s "$checksums" "$current_channel"; then
+    echo "$product stable already points to $tag."
+    exit 0
+  fi
+  file_sha="$(jq -r .sha "$contents_json")"
+fi
+
+encoded="$(base64 < "$checksums" | tr -d '\n')"
+if [[ -n "$file_sha" ]]; then
+  jq -n --arg message "release: set $product $tag stable" \
+    --arg content "$encoded" --arg sha "$file_sha" \
+    '{message:$message,content:$content,sha:$sha,branch:"main"}' > "$scratch/update.json"
+else
+  jq -n --arg message "release: set $product $tag stable" \
+    --arg content "$encoded" \
+    '{message:$message,content:$content,branch:"main"}' > "$scratch/update.json"
+fi
+gh api --method PUT "repos/$DISTRIBUTION_REPOSITORY/contents/$channel_path" \
+  --input "$scratch/update.json" >/dev/null
+echo "Published $tag and updated $channel_path."

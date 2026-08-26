@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -18,57 +18,20 @@ def write_executable(path: Path, content: str) -> None:
 
 
 class InstallerTests(unittest.TestCase):
-    def test_scripts_are_posix_shell_and_do_not_execute_manifest(self) -> None:
+    def test_public_scripts_are_small_posix_stable_installers(self) -> None:
         for name in ("install.sh", "install-server.sh"):
             result = subprocess.run(["sh", "-n", str(ROOT / name)], check=False)
             self.assertEqual(result.returncode, 0)
             source = (ROOT / name).read_text(encoding="utf-8")
+            self.assertNotIn("release-manifest.json", source)
+            self.assertNotIn("--channel", source)
+            self.assertNotIn("--version", source)
             self.assertNotIn("eval ", source)
-            self.assertNotIn("releases/latest", source)
-            self.assertIn("--channel stable|prerelease", source)
-            self.assertIn("--version VERSION", source)
 
-    def test_desktop_exact_version_downloads_verified_fixture(self) -> None:
-        fixture = self._fixture("desktop", "1.2.3", b"desktop-fixture")
+    def test_desktop_stable_downloads_verified_deb(self) -> None:
+        fixture = self._fixture("desktop", b"desktop-fixture")
         result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--version", "1.2.3", "--download-only", str(fixture["downloads"])],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((fixture["downloads"] / "aeloon-lite-1.2.3-x86_64.deb").read_bytes(), b"desktop-fixture")
-
-    def test_runtime_stable_downloads_verified_fixture(self) -> None:
-        fixture = self._fixture("runtime", "1.2.3", b"runtime-fixture")
-        result = subprocess.run(
-            ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((fixture["downloads"] / "aeloon-runtime-linux-x86_64.tar.gz").read_bytes(), b"runtime-fixture")
-
-    def test_prerelease_channel_and_rpm_selection(self) -> None:
-        fixture = self._fixture(
-            "desktop",
-            "1.2.3-rc.1",
-            b"rpm-fixture",
-            desktop_format="rpm",
-            os_release_content="ID=fedora\n",
-        )
-        result = subprocess.run(
-            [
-                "sh",
-                str(ROOT / "install.sh"),
-                "--channel",
-                "prerelease",
-                "--download-only",
-                str(fixture["downloads"]),
-            ],
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
             capture_output=True,
             text=True,
             env=fixture["env"],
@@ -76,58 +39,98 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            (fixture["downloads"] / "aeloon-lite-1.2.3-rc.1-x86_64.rpm").read_bytes(),
+            (fixture["downloads"] / "aeloon-lite-1.2.3-x86_64.deb").read_bytes(),
+            b"desktop-fixture",
+        )
+
+    def test_runtime_stable_downloads_verified_archive(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True,
+            text=True,
+            env=fixture["env"],
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (fixture["downloads"] / "aeloon-runtime-linux-x86_64.tar.gz").read_bytes(),
+            b"runtime-fixture",
+        )
+
+    def test_desktop_rpm_selection(self) -> None:
+        fixture = self._fixture("desktop", b"rpm-fixture", desktop_format="rpm", os_release="ID=fedora\n")
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True,
+            text=True,
+            env=fixture["env"],
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (fixture["downloads"] / "aeloon-lite-1.2.3-x86_64.rpm").read_bytes(),
             b"rpm-fixture",
         )
 
-    def test_channel_and_version_are_mutually_exclusive(self) -> None:
+    def test_removed_release_selection_flags_are_rejected(self) -> None:
         result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--channel", "stable", "--version", "1.2.3"],
+            ["sh", str(ROOT / "install.sh"), "--version", "1.2.3"],
             capture_output=True,
             text=True,
             check=False,
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("mutually exclusive", result.stderr)
+        self.assertIn("Unknown argument", result.stderr)
 
-    def test_redirected_manifest_url_fails_before_artifact_download(self) -> None:
-        fixture = self._fixture("desktop", "1.2.3", b"fixture", redirected=True)
+    def test_malformed_or_duplicate_metadata_is_rejected(self) -> None:
+        fixture = self._fixture("desktop", b"fixture")
+        channel = fixture["channel"]
+        assert isinstance(channel, Path)
+        channel.write_text(channel.read_text() + channel.read_text().splitlines()[-1] + "\n")
         result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--version", "1.2.3", "--download-only", str(fixture["downloads"])],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("redirects outside", result.stderr)
-
-    def test_duplicate_pointer_field_is_rejected(self) -> None:
-        fixture = self._fixture("desktop", "1.2.3", b"fixture")
-        pointer = fixture["pointer"]
-        assert isinstance(pointer, Path)
-        source = pointer.read_text(encoding="utf-8")
-        pointer.write_text(
-            source.replace(
-                '  "manifestUrl":',
-                '  "manifestUrl": "https://github.com/duplicate.invalid/release-manifest.json",\n  "manifestUrl":',
-            )
-        )
-        result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--version", "1.2.3", "--download-only", str(fixture["downloads"])],
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
             capture_output=True,
             text=True,
             env=fixture["env"],
             check=False,
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("strict generated JSON", result.stderr)
+        self.assertIn("exactly one checksum", result.stderr)
 
-    def test_manifest_digest_mismatch_fails_closed(self) -> None:
-        fixture = self._fixture("runtime", "1.2.3", b"fixture")
-        manifest = fixture["manifest"]
-        assert isinstance(manifest, Path)
-        manifest.write_text(manifest.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    def test_digest_mismatch_fails_closed(self) -> None:
+        fixture = self._fixture("desktop", b"fixture", wrong_digest=True)
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True,
+            text=True,
+            env=fixture["env"],
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("SHA-256 mismatch", result.stderr)
+        self.assertFalse(Path(fixture["downloads"]).exists())
+
+    def test_network_failure_leaves_no_download(self) -> None:
+        fixture = self._fixture("desktop", b"fixture")
+        tools = fixture["tools"]
+        assert isinstance(tools, Path)
+        write_executable(tools / "curl", "#!/bin/sh\nexit 22\n")
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True,
+            text=True,
+            env=fixture["env"],
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(Path(fixture["downloads"]).exists())
+
+    def test_runtime_rejects_unsafe_archive_paths(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        tools = fixture["tools"]
+        assert isinstance(tools, Path)
+        write_executable(tools / "tar", "#!/bin/sh\necho ../escape\n")
         result = subprocess.run(
             ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
             capture_output=True,
@@ -136,31 +139,43 @@ class InstallerTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("manifest SHA-256 mismatch", result.stderr)
+        self.assertIn("unsafe path", result.stderr)
 
-    def test_network_failure_does_not_leave_an_unverified_download(self) -> None:
-        fixture = self._fixture("desktop", "1.2.3", b"fixture")
-        tools = fixture["tools"]
-        assert isinstance(tools, Path)
-        write_executable(tools / "curl", "#!/bin/sh\nexit 22\n")
-        result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--version", "1.2.3", "--download-only", str(fixture["downloads"])],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertFalse(Path(fixture["downloads"]).exists())
+    def test_committed_stable_files_have_the_fixed_contract(self) -> None:
+        contracts = {
+            "desktop": ("0.0.19", "AetherHeart-AI/aeloon-lite-ui", 5),
+            "runtime": ("0.1.2", "AetherHeart-AI/aeloon-lite-runtime", 5),
+        }
+        for product, (version, repository, asset_count) in contracts.items():
+            lines = (ROOT / "channels" / product / "stable").read_text().splitlines()
+            self.assertEqual(lines[0], "# aeloon-release-v1")
+            self.assertEqual(lines[1], f"# product={product}")
+            self.assertEqual(lines[2], f"# version={version}")
+            self.assertRegex(lines[3], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
+            entries = [line.split("  ", 1) for line in lines[4:]]
+            self.assertEqual(len(entries), asset_count)
+            self.assertEqual([entry[1] for entry in entries], sorted(entry[1] for entry in entries))
+            self.assertEqual(len({entry[1] for entry in entries}), asset_count)
+            for digest, name in entries:
+                self.assertRegex(digest, r"^[0-9a-f]{64}$")
+                self.assertNotIn("/", name)
+
+    def test_publisher_has_no_promotion_or_manifest_layer(self) -> None:
+        script = (ROOT / "tools" / "publish_release.sh").read_text()
+        self.assertNotIn("repository_dispatch", script)
+        self.assertNotIn("release-manifest", script)
+        self.assertNotIn("prerelease", script)
+        self.assertIn("SHA256SUMS", script)
+        self.assertIn("contents/$channel_path", script)
 
     def _fixture(
         self,
         product: str,
-        version: str,
         payload: bytes,
-        redirected: bool = False,
+        *,
         desktop_format: str = "deb",
-        os_release_content: str = "ID=ubuntu\n",
+        os_release: str = "ID=ubuntu\n",
+        wrong_digest: bool = False,
     ) -> dict[str, object]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -168,44 +183,31 @@ class InstallerTests(unittest.TestCase):
         tools = root / "bin"
         tools.mkdir()
         downloads = root / "downloads"
-        pointer = root / "pointer.json"
-        manifest = root / "release-manifest.json"
+        channel = root / "stable"
         artifact = root / "artifact"
         artifact.write_bytes(payload)
-        digest = hashlib.sha256(payload).hexdigest()
-        tag = ("v" if product == "desktop" else "runtime-v") + version
+        digest = "0" * 64 if wrong_digest else hashlib.sha256(payload).hexdigest()
+        version = "1.2.3"
         if product == "desktop":
-            package_format = desktop_format
-            key, arch, name = (
-                f"linux-x86_64-{package_format}",
-                "x86_64",
-                f"aeloon-lite-{version}-x86_64.{package_format}",
-            )
-            source_repository = "AetherHeart-AI/aeloon-lite-ui"
+            repository = "AetherHeart-AI/aeloon-lite-ui"
+            name = f"aeloon-lite-{version}-x86_64.{desktop_format}"
         else:
-            key, arch, package_format, name = "linux-x86_64-tar.gz", "x86_64", "tar.gz", "aeloon-runtime-linux-x86_64.tar.gz"
-            source_repository = "AetherHeart-AI/aeloon-lite-runtime"
-        artifact_url = f"https://github.com/AetherHeart-AI/aeloon-lite/releases/download/{tag}/{name}"
-        manifest_value = {
-            "schemaVersion": 1,
-            "product": product,
-            "version": version,
-            "tag": tag,
-            "source": {"repository": source_repository, "commit": "ab" * 20},
-            "publishedAt": "2026-08-26T00:00:00Z",
-            "artifacts": [{
-                "key": key, "os": "linux", "arch": arch, "format": package_format,
-                "name": name, "url": artifact_url, "sha256": digest, "size": len(payload),
-            }],
-        }
-        manifest.write_text(json.dumps(manifest_value, indent=2) + "\n", encoding="utf-8")
-        manifest_url = f"https://github.com/AetherHeart-AI/aeloon-lite/releases/download/{tag}/release-manifest.json"
-        pointer_value = {
-            "manifestUrl": "https://example.com/evil.json" if redirected else manifest_url,
-            "manifestSha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
-        }
-        pointer.write_text(json.dumps(pointer_value, indent=2) + "\n", encoding="utf-8")
-        write_executable(tools / "uname", '#!/bin/sh\n[ "$1" = "-s" ] && echo Linux || echo x86_64\n')
+            repository = "AetherHeart-AI/aeloon-lite-runtime"
+            name = "aeloon-runtime-linux-x86_64.tar.gz"
+        channel.write_text(
+            "\n".join(
+                [
+                    "# aeloon-release-v1",
+                    f"# product={product}",
+                    f"# version={version}",
+                    f"# source={repository}@{'ab' * 20}",
+                    f"{digest}  {name}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        write_executable(tools / "uname", '#!/bin/sh\n[ "${1:-}" = "-s" ] && echo Linux || echo x86_64\n')
         write_executable(tools / "apt-get", "#!/bin/sh\nexit 0\n")
         write_executable(tools / "dnf", "#!/bin/sh\nexit 0\n")
         write_executable(tools / "tar", "#!/bin/sh\necho aeloon-runtime/bin/aeloon-runtime\n")
@@ -217,36 +219,28 @@ output=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output) output=$2; shift 2 ;;
-    --header|--proto) shift 2 ;;
-    --retry) shift 2 ;;
+    --header|--proto|--retry) shift 2 ;;
     --fail|--location|--tlsv1.2) shift ;;
     *) url=$1; shift ;;
   esac
 done
 case "$url" in
-  *raw.githubusercontent.com*) cp "$FIXTURE_POINTER" "$output" ;;
-  */release-manifest.json) cp "$FIXTURE_MANIFEST" "$output" ;;
+  *raw.githubusercontent.com*) cp "$FIXTURE_CHANNEL" "$output" ;;
   *) cp "$FIXTURE_ARTIFACT" "$output" ;;
 esac
 """,
         )
         os_release_path = root / "os-release"
-        os_release_path.write_text(os_release_content, encoding="utf-8")
+        os_release_path.write_text(os_release, encoding="utf-8")
         env = {
             **os.environ,
             "PATH": f"{tools}:{os.environ.get('PATH', '')}",
+            "AELOON_CHANNEL_FILE": str(channel),
             "AELOON_UI_OS_RELEASE_FILE": str(os_release_path),
-            "FIXTURE_POINTER": str(pointer),
-            "FIXTURE_MANIFEST": str(manifest),
+            "FIXTURE_CHANNEL": str(channel),
             "FIXTURE_ARTIFACT": str(artifact),
         }
-        return {
-            "downloads": downloads,
-            "env": env,
-            "pointer": pointer,
-            "manifest": manifest,
-            "tools": tools,
-        }
+        return {"downloads": downloads, "env": env, "channel": channel, "tools": tools}
 
 
 if __name__ == "__main__":
