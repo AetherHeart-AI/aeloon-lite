@@ -87,12 +87,13 @@ checksums="$scratch/SHA256SUMS"
 release_id="$(gh api "repos/$DISTRIBUTION_REPOSITORY/releases?per_page=100" \
   --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
 if [[ -z "$release_id" ]]; then
-  gh release create "$tag" --repo "$DISTRIBUTION_REPOSITORY" --target main --draft \
-    --title "Aeloon $product $tag" \
-    --notes "Stable Aeloon $product release built from $source_repository@$source_commit."
-  release_id="$(gh api "repos/$DISTRIBUTION_REPOSITORY/releases?per_page=100" \
-    --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
-  [[ -n "$release_id" ]] || { echo "Draft release $tag was not found after creation." >&2; exit 1; }
+  release_id="$(gh api --method POST "repos/$DISTRIBUTION_REPOSITORY/releases" \
+    -f "tag_name=$tag" \
+    -f target_commitish=main \
+    -f "name=Aeloon $product $tag" \
+    -f "body=Stable Aeloon $product release built from $source_repository@$source_commit." \
+    -F draft=true \
+    --jq .id)"
 fi
 
 release_json="$scratch/release.json"
