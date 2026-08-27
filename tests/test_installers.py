@@ -192,6 +192,8 @@ class InstallerTests(unittest.TestCase):
             env={
                 **os.environ,
                 "HOME": str(user_home),
+                "XDG_CONFIG_HOME": str(user_home / ".config"),
+                "XDG_CACHE_HOME": str(user_home / ".cache"),
                 "PATH": f"{tools}:{os.environ.get('PATH', '')}",
             },
             check=False,
@@ -229,6 +231,8 @@ class InstallerTests(unittest.TestCase):
             env={
                 **os.environ,
                 "HOME": str(user_home),
+                "XDG_CONFIG_HOME": str(user_home / ".config"),
+                "XDG_CACHE_HOME": str(user_home / ".cache"),
                 "PATH": f"{tools}:{os.environ.get('PATH', '')}",
                 "PACKAGE_LOG": str(package_log),
             },
