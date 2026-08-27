@@ -169,6 +169,21 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("SHA256SUMS", script)
         self.assertIn("contents/$channel_path", script)
 
+    def test_publish_workflow_receives_and_verifies_source_releases(self) -> None:
+        workflow = (ROOT / ".github/workflows/publish.yml").read_text()
+        self.assertIn("repository_dispatch", workflow)
+        self.assertIn("publish-runtime", workflow)
+        self.assertIn("publish-desktop", workflow)
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn("inputs.product", workflow)
+        self.assertIn("inputs.version", workflow)
+        self.assertIn("gh release download", workflow)
+        self.assertIn("source_commit", workflow)
+        self.assertIn("sha256sum -c SHA256SUMS", workflow)
+        self.assertIn("tools/publish_release.sh", workflow)
+        self.assertIn("event_type=runtime-release", workflow)
+        self.assertIn("AELOON_RELEASE_TOKEN", workflow)
+
     def _fixture(
         self,
         product: str,
