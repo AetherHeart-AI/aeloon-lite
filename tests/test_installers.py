@@ -168,6 +168,10 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('gh api --method POST "repos/$DISTRIBUTION_REPOSITORY/releases"', script)
         self.assertIn("SHA256SUMS", script)
         self.assertIn("contents/$channel_path", script)
+        self.assertIn("git/ref/heads/$branch", script)
+        self.assertIn('gh pr create --repo "$DISTRIBUTION_REPOSITORY"', script)
+        self.assertIn('gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash', script)
+        self.assertIn("Timed out waiting for stable channel PR", script)
 
     def test_publish_workflow_receives_and_verifies_source_releases(self) -> None:
         workflow = (ROOT / ".github/workflows/publish.yml").read_text()
