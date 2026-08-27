@@ -5,10 +5,13 @@ REPOSITORY="AetherHeart-AI/aeloon-lite"
 RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
 DOWNLOAD_ONLY=""
 REQUESTED_FORMAT=""
+IF_INSTALLED=""
+INSTALL_ACTION="install"
 
 usage() {
   cat <<'EOF'
 Usage: install.sh [--download-only DIRECTORY] [--format dmg|deb|rpm]
+                  [--if-installed overwrite|update|skip]
 EOF
 }
 
@@ -24,6 +27,14 @@ while [ "$#" -gt 0 ]; do
       case "$2" in
         dmg|deb|rpm) REQUESTED_FORMAT=$2 ;;
         *) echo "Unsupported installer format: $2" >&2; usage >&2; exit 2 ;;
+      esac
+      shift 2
+      ;;
+    --if-installed)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$2" in
+        overwrite|update|skip) IF_INSTALLED=$2 ;;
+        *) echo "Unsupported installed action: $2" >&2; usage >&2; exit 2 ;;
       esac
       shift 2
       ;;
@@ -56,6 +67,82 @@ metadata_value() {
     }
     END { if (count != 1) exit 2 }
   ' "$1"
+}
+
+detect_installed_version() {
+  if [ "$SYSTEM" = Darwin ]; then
+    for application in "/Applications/aeloon-lite.app" "${HOME:-}/Applications/aeloon-lite.app"; do
+      [ -d "$application" ] || continue
+      plist="$application/Contents/Info.plist"
+      version=""
+      if [ -r "$plist" ] && command -v plutil >/dev/null 2>&1; then
+        version=$(plutil -extract CFBundleShortVersionString raw -o - "$plist" 2>/dev/null || true)
+      fi
+      if [ -z "$version" ] && [ -r "$plist" ] && [ -x /usr/libexec/PlistBuddy ]; then
+        version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)
+      fi
+      printf '%s\n' "${version:-unknown}"
+      return 0
+    done
+    return 1
+  fi
+
+  if [ "$PACKAGE_KIND" = deb ] && command -v dpkg-query >/dev/null 2>&1; then
+    package_state=$(dpkg-query -W -f='${Status}|${Version}\n' aeloon-lite 2>/dev/null || true)
+    case "$package_state" in
+      'install ok installed|'*) printf '%s\n' "${package_state#*|}"; return 0 ;;
+    esac
+  elif [ "$PACKAGE_KIND" = rpm ] && command -v rpm >/dev/null 2>&1; then
+    version=$(rpm -q --qf '%{VERSION}\n' aeloon-lite 2>/dev/null || true)
+    if [ -n "$version" ]; then
+      printf '%s\n' "$version"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+semver_core() {
+  printf '%s\n' "$1" | sed 's/^[0-9][0-9]*://' | sed -n \
+    's/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p'
+}
+
+semver_compare() {
+  awk -v left="$1" -v right="$2" 'BEGIN {
+    split(left, a, "."); split(right, b, ".")
+    for (i = 1; i <= 3; i++) {
+      if ((a[i] + 0) < (b[i] + 0)) { print -1; exit }
+      if ((a[i] + 0) > (b[i] + 0)) { print 1; exit }
+    }
+    print 0
+  }'
+}
+
+choose_installed_action() {
+  if [ -n "$IF_INSTALLED" ]; then
+    INSTALL_ACTION=$IF_INSTALLED
+    return
+  fi
+
+  echo "aeloon-lite $1 is already installed; stable is $VERSION." >&2
+  while :; do
+    printf 'Choose [o]verwrite, [u]pdate, or [s]kip: ' >&2
+    if [ -t 0 ]; then
+      IFS= read -r reply || reply=""
+    elif IFS= read -r reply 2>/dev/null </dev/tty; then
+      :
+    else
+      echo >&2
+      echo "No interactive terminal is available; rerun with --if-installed overwrite, update, or skip." >&2
+      exit 2
+    fi
+    case "$reply" in
+      o|O|overwrite|OVERWRITE) INSTALL_ACTION=overwrite; return ;;
+      u|U|update|UPDATE) INSTALL_ACTION=update; return ;;
+      s|S|skip|SKIP) INSTALL_ACTION=skip; return ;;
+      *) echo "Please choose overwrite, update, or skip." >&2 ;;
+    esac
+  done
 }
 
 CHANNEL_FILE="$TEMP_ROOT/stable"
@@ -141,6 +228,27 @@ else
   exit 2
 fi
 
+if [ -z "$DOWNLOAD_ONLY" ] && INSTALLED_VERSION=$(detect_installed_version); then
+  choose_installed_action "$INSTALLED_VERSION"
+  case "$INSTALL_ACTION" in
+    skip)
+      echo "Keeping the installed aeloon-lite $INSTALLED_VERSION."
+      exit 0
+      ;;
+    update)
+      INSTALLED_CORE=$(semver_core "$INSTALLED_VERSION")
+      if [ -n "$INSTALLED_CORE" ] && [ "$(semver_compare "$INSTALLED_CORE" "$VERSION")" -ge 0 ]; then
+        echo "Installed aeloon-lite $INSTALLED_VERSION is already at or newer than stable $VERSION; nothing to update."
+        exit 0
+      fi
+      echo "Updating aeloon-lite $INSTALLED_VERSION to $VERSION."
+      ;;
+    overwrite)
+      echo "Overwriting aeloon-lite $INSTALLED_VERSION with stable $VERSION."
+      ;;
+  esac
+fi
+
 ASSET="aeloon-lite-${VERSION}-${RELEASE_ARCH}.${PACKAGE_KIND}"
 EXPECTED_SHA256=$(awk -v name="$ASSET" '
   $2 == name && $1 ~ /^[0-9a-f]{64}$/ { print $1; count++ }
@@ -184,7 +292,11 @@ if [ "$PACKAGE_KIND" = dmg ]; then
   fi
   save_installer "$MACOS_DESTINATION"
   command -v open >/dev/null 2>&1 && open "$SAVED_INSTALLER" || true
-  echo "Drag aeloon-lite.app into Applications."
+  if [ "$INSTALL_ACTION" = overwrite ] || [ "$INSTALL_ACTION" = update ]; then
+    echo "Drag aeloon-lite.app into Applications and choose Replace when prompted."
+  else
+    echo "Drag aeloon-lite.app into Applications."
+  fi
   echo "This internal build is not notarized; macOS may require approval in System Settings > Privacy & Security."
   exit 0
 fi
@@ -198,10 +310,17 @@ fi
 
 if [ "$PACKAGE_KIND" = deb ]; then
   command -v apt-get >/dev/null 2>&1 || { echo "apt-get is required to install the DEB package." >&2; exit 2; }
-  if ! $SUDO apt-get install -y "$ARCHIVE"; then
+  if [ "$INSTALL_ACTION" = overwrite ]; then
+    if ! $SUDO apt-get install -y --reinstall --allow-downgrades "$ARCHIVE"; then
+      $SUDO dpkg -i "$ARCHIVE"
+      $SUDO apt-get -f install -y
+    fi
+  elif ! $SUDO apt-get install -y "$ARCHIVE"; then
     $SUDO dpkg -i "$ARCHIVE"
     $SUDO apt-get -f install -y
   fi
+elif [ "$INSTALL_ACTION" = overwrite ] && command -v rpm >/dev/null 2>&1; then
+  $SUDO rpm -Uvh --replacepkgs --oldpackage "$ARCHIVE"
 elif command -v dnf >/dev/null 2>&1; then
   $SUDO dnf install -y "$ARCHIVE"
 elif command -v yum >/dev/null 2>&1; then
