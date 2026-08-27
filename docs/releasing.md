@@ -45,8 +45,9 @@ and `runtime-vX.Y.Z` for Runtime.
 4. `publish.yml` resolves the source tag, downloads its Release assets, verifies the tag commit,
    checks the fixed asset set and every SHA-256 entry, then runs `tools/publish_release.sh`.
 5. The publisher creates or resumes the public Draft, compares GitHub asset digests, makes the
-   Release public, and updates the matching stable channel file. A Runtime publication then sends
-   `runtime-release` to the Desktop lock workflow.
+   Release public, and opens an auto-merge PR for the matching stable channel file. It waits for
+   that PR to merge before a Runtime publication sends `runtime-release` to the Desktop lock
+   workflow.
 6. The lock workflow reads the public Runtime stable checksums, copies protocol types when needed,
    and opens one auto-merge PR. Desktop stays on its previous Runtime until that PR merges.
 
