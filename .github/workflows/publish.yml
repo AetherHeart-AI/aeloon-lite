@@ -139,7 +139,7 @@ jobs:
 
       - name: Publish distribution release and stable channel
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
           PRODUCT: ${{ steps.source.outputs.product }}
           VERSION: ${{ steps.source.outputs.version }}
           SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
