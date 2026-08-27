@@ -1,9 +1,9 @@
 # aeloon-release-v1
 # product=desktop
-# version=0.0.22
-# source=AetherHeart-AI/aeloon-lite-ui@522dc872d7b096200393b9d97408af3542fbdc6f
-3973de8b6ab230794825eb3473396807d7c4db7e8310339189f7cf40ede64789  aeloon-lite-0.0.22-arm64.deb
-b920a9a094b9a4c5ce1070d28a42d4fab402898e96904604b1cad3f7da0a231f  aeloon-lite-0.0.22-arm64.dmg
-e7e6f3f23be759cc9bea777f3aba409ec97e249e1b4d0ba70f2ad54d43a2758e  aeloon-lite-0.0.22-arm64.rpm
-7eb29cdd42b40b745ba6bb3ffac5ae2d4111b25fb91e3abec2bab33f9625266a  aeloon-lite-0.0.22-x86_64.deb
-02a5be88ad8c46428ca667dc08d058278b9c732e6970e43119bacdff800eb91f  aeloon-lite-0.0.22-x86_64.rpm
+# version=0.0.23
+# source=AetherHeart-AI/aeloon-lite-ui@de33b6f59fda555109a99ccc6b0d5b7a6c5c8bb9
+251fd0a5aadf738da26e5918a9fce1f697e313ecf845b61043526d5618df6fb0  aeloon-lite-0.0.23-arm64.deb
+29095280fe438f016742f17688783e23f3fb63161d38c2884edb3733766217e4  aeloon-lite-0.0.23-arm64.dmg
+7d5ce6c6d5dffbd5815b63fa1ade803c4bc86054a2fa82ae1465637bb4cd47fd  aeloon-lite-0.0.23-arm64.rpm
+c38ccbecf1c7c7a2ed764262daec547fe3458f29dac7ad4641f81aea6926a872  aeloon-lite-0.0.23-x86_64.deb
+3cf5784422cd86657c1bb9893e0ffa92a63b7ca4d52a81e1df2e25599e0d0794  aeloon-lite-0.0.23-x86_64.rpm
