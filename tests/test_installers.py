@@ -181,6 +181,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("source_commit", workflow)
         self.assertIn("sha256sum -c SHA256SUMS", workflow)
         self.assertIn("tools/publish_release.sh", workflow)
+        self.assertIn("GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}", workflow)
         self.assertIn("event_type=runtime-release", workflow)
         self.assertIn("AELOON_RELEASE_TOKEN", workflow)
 
