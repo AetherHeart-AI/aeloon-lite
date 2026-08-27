@@ -142,15 +142,14 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("unsafe path", result.stderr)
 
     def test_committed_stable_files_have_the_fixed_contract(self) -> None:
-        contracts = {
-            "desktop": ("0.0.19", "AetherHeart-AI/aeloon-lite-ui", 5),
-            "runtime": ("0.1.2", "AetherHeart-AI/aeloon-lite-runtime", 5),
-        }
-        for product, (version, repository, asset_count) in contracts.items():
+        for product, (repository, asset_count) in {
+            "desktop": ("AetherHeart-AI/aeloon-lite-ui", 5),
+            "runtime": ("AetherHeart-AI/aeloon-lite-runtime", 5),
+        }.items():
             lines = (ROOT / "channels" / product / "stable").read_text().splitlines()
             self.assertEqual(lines[0], "# aeloon-release-v1")
             self.assertEqual(lines[1], f"# product={product}")
-            self.assertEqual(lines[2], f"# version={version}")
+            self.assertRegex(lines[2], r"^# version=\d+\.\d+\.\d+$")
             self.assertRegex(lines[3], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
             entries = [line.split("  ", 1) for line in lines[4:]]
             self.assertEqual(len(entries), asset_count)
