@@ -143,26 +143,65 @@ fi
 
 contents_json="$scratch/channel.json"
 current_channel="$scratch/current-stable"
-file_sha=""
 if gh api "repos/$DISTRIBUTION_REPOSITORY/contents/$channel_path?ref=main" > "$contents_json" 2>/dev/null; then
   jq -r .content "$contents_json" | base64 --decode > "$current_channel"
   if cmp -s "$checksums" "$current_channel"; then
     echo "$product stable already points to $tag."
     exit 0
   fi
-  file_sha="$(jq -r .sha "$contents_json")"
 fi
 
 encoded="$(base64 < "$checksums" | tr -d '\n')"
-if [[ -n "$file_sha" ]]; then
+branch="automation/stable-$product-$tag"
+main_commit="$(gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+if ! gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/$branch" >/dev/null 2>&1; then
+  gh api --method POST "repos/$DISTRIBUTION_REPOSITORY/git/refs" \
+    -f "ref=refs/heads/$branch" \
+    -f "sha=$main_commit" >/dev/null
+fi
+
+branch_channel="$scratch/branch-channel.json"
+branch_file_sha=""
+if gh api "repos/$DISTRIBUTION_REPOSITORY/contents/$channel_path?ref=$branch" > "$branch_channel" 2>/dev/null; then
+  branch_file_sha="$(jq -r .sha "$branch_channel")"
+fi
+if [[ -n "$branch_file_sha" ]]; then
   jq -n --arg message "release: set $product $tag stable" \
-    --arg content "$encoded" --arg sha "$file_sha" \
-    '{message:$message,content:$content,sha:$sha,branch:"main"}' > "$scratch/update.json"
+    --arg content "$encoded" --arg sha "$branch_file_sha" --arg branch "$branch" \
+    '{message:$message,content:$content,sha:$sha,branch:$branch}' > "$scratch/update.json"
 else
   jq -n --arg message "release: set $product $tag stable" \
-    --arg content "$encoded" \
-    '{message:$message,content:$content,branch:"main"}' > "$scratch/update.json"
+    --arg content "$encoded" --arg branch "$branch" \
+    '{message:$message,content:$content,branch:$branch}' > "$scratch/update.json"
 fi
 gh api --method PUT "repos/$DISTRIBUTION_REPOSITORY/contents/$channel_path" \
   --input "$scratch/update.json" >/dev/null
-echo "Published $tag and updated $channel_path."
+
+pr="$(gh pr list --repo "$DISTRIBUTION_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')"
+if [[ -z "$pr" ]]; then
+  gh pr create --repo "$DISTRIBUTION_REPOSITORY" --base main --head "$branch" \
+    --title "release: set $product $tag stable" \
+    --body "Updates $channel_path to the verified $tag release." >/dev/null
+  pr="$(gh pr view "$branch" --repo "$DISTRIBUTION_REPOSITORY" --json number --jq .number)"
+fi
+gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash >/dev/null
+
+deadline=$((SECONDS + 1100))
+while :; do
+  state="$(gh pr view "$pr" --repo "$DISTRIBUTION_REPOSITORY" --json state --jq .state)"
+  case "$state" in
+    MERGED)
+      echo "Published $tag and updated $channel_path through PR #$pr."
+      break
+      ;;
+    CLOSED)
+      echo "Stable channel PR #$pr was closed without merging." >&2
+      exit 1
+      ;;
+  esac
+  if (( SECONDS >= deadline )); then
+    echo "Timed out waiting for stable channel PR #$pr to merge." >&2
+    exit 1
+  fi
+  sleep 10
+done

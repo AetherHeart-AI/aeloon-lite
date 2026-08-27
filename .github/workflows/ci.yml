@@ -27,6 +27,8 @@ jobs:
           set -euo pipefail
           sh -n install.sh
           sh -n install-server.sh
+          sh -n uninstall.sh
+          sh -n uninstall-server.sh
           bash -n tools/publish_release.sh
           python3 -m unittest discover -s tests -v
           git diff --check
