@@ -7,7 +7,8 @@ Desktop and Runtime each have one manually dispatched source workflow. The workf
 Store the same fine-grained token as `AELOON_RELEASE_TOKEN` in the Desktop and Runtime source repositories. It needs:
 
 - `AetherHeart-AI/aeloon-lite`: Contents read/write;
-- `AetherHeart-AI/aeloon-lite-ui`: Contents and Pull requests read/write.
+- `AetherHeart-AI/aeloon-lite-ui`: Contents and Pull requests read/write;
+- `AetherHeart-AI/aeloon-lite-runtime`: Contents read (so the lock workflow can copy protocol types).
 
 The distribution ruleset must allow that automation identity to update `channels/*/stable` on `main`. Source tags use each source repository's `GITHUB_TOKEN`. No RPM signing or promotion credential is required.
 
@@ -18,7 +19,7 @@ The distribution ruleset must allow that automation identity to update `channels
 3. Platform jobs build and verify the final artifacts. No public state changes before every required smoke test succeeds.
 4. The publisher creates or resumes a Draft, uploads the fixed asset set and `SHA256SUMS`, and compares every GitHub digest.
 5. The publisher makes the Release public and updates the matching stable file through the GitHub Contents API.
-6. A Runtime release dispatches the Desktop Runtime-lock workflow. That workflow opens one auto-merge PR; Desktop remains on its previous Runtime until its own CI passes.
+6. A Runtime release dispatches the Desktop Runtime-lock workflow. That workflow reads `channels/runtime/stable` checksums (it does not re-download archives), copies protocol types when they changed, and opens one auto-merge PR. Desktop remains on its previous Runtime until that PR merges. Daily Desktop CI only checks the lock file shape; packaging still verifies archive SHA-256 at Desktop release.
 
 An interrupted Draft can be rerun with the same version. A published release can be rerun only with byte-identical artifacts; the rerun repairs a failed stable update. Different bytes always require a new version.
 
