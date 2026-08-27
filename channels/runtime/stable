@@ -1,9 +1,9 @@
 # aeloon-release-v1
 # product=runtime
-# version=0.1.4
-# source=AetherHeart-AI/aeloon-lite-runtime@542b9fa28d983987e6a3f838871f10826078b375
-43a0d24b46b7097df6d8e328ee2ed82157db27799c08bd043807eaa7d7397ba6  aeloon-runtime-darwin-aarch64.tar.zst
-391cef599fbcd1509d091858c95e5bedebff59886c84f01af441e8847d3af8cf  aeloon-runtime-linux-aarch64.tar.gz
-63f98c9682f172f3c8026618ddd290ebfe662f9874fd36c0b602237d735b14b3  aeloon-runtime-linux-aarch64.tar.zst
-c853304c1dd0d178814f4f1d02f076ab02cd0d9672401a6c0dd9d3f9d12a6be9  aeloon-runtime-linux-x86_64.tar.gz
-8ee4a43d6fa85dff8616c0658fda57801505d1350417836be7c5a286da2ca3bd  aeloon-runtime-linux-x86_64.tar.zst
+# version=0.1.5
+# source=AetherHeart-AI/aeloon-lite-runtime@895d070aee06be8bc798dfca66843db6b0438362
+de040dee02584f034f4523ebf79de4890d28e5a19b8f1e6441f5f2d1a98844ee  aeloon-runtime-darwin-aarch64.tar.zst
+c119e6e25ee9e68201fc050ff382aac7e75493d14bd292dece20e72728b754b2  aeloon-runtime-linux-aarch64.tar.gz
+5e4654b445e0307bfa63c2fcaa9ec4c7aee23c69bc3532b3a891b665dfd74321  aeloon-runtime-linux-aarch64.tar.zst
+397a063a45491d216788d8a4ff41d557341c1f532cab0a37de217365550d6f47  aeloon-runtime-linux-x86_64.tar.gz
+0240f8701e2b8222038d1d848ccbad4b2690219115395b3c48d2691580fd79a7  aeloon-runtime-linux-x86_64.tar.zst
