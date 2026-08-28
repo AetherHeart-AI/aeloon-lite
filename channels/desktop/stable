@@ -1,9 +1,5 @@
-# aeloon-release-v1
+# aeloon-release-v2
 # product=desktop
 # version=0.0.24
+# release=v0.0.24
 # source=AetherHeart-AI/aeloon-lite-ui@fdbc668f2c27e7f5885ddba029251e94374110d5
-9d38f33f8fcaf9d50edee6e0ae5d858704e688799708aac3fd350c0d3d4f5544  aeloon-lite-0.0.24-arm64.deb
-a4314b2cbe99f85b99c762781038cbe68f86cf730f50095f93af6452cee9167c  aeloon-lite-0.0.24-arm64.dmg
-f655a43c4c366e133c21e675e8ab0ea6e34b205ac19d534dfcaeec47fa4d701e  aeloon-lite-0.0.24-arm64.rpm
-7947415ff1d025257bb0dc041c214ee5dde9195a7f54b050b2bad2b305f7b732  aeloon-lite-0.0.24-x86_64.deb
-f9e452c2d46b9f3b8b9e6e9d3a54e008102862277a6751c5dcba814a2a918a6f  aeloon-lite-0.0.24-x86_64.rpm

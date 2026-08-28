@@ -41,7 +41,7 @@ done
   echo "Aeloon Runtime server installation supports Linux systemd hosts only." >&2
   exit 2
 }
-for required_command in awk curl grep sed sha256sum tar; do
+for required_command in awk curl grep sed tar; do
   command -v "$required_command" >/dev/null 2>&1 || {
     echo "Required command is unavailable: $required_command" >&2
     exit 2
@@ -163,10 +163,14 @@ else
   }
 fi
 
-[ "$(sed -n '1p' "$CHANNEL_FILE")" = "# aeloon-release-v1" ] || {
+CHANNEL_SCHEMA=$(sed -n '1p' "$CHANNEL_FILE")
+case "$CHANNEL_SCHEMA" in
+  "# aeloon-release-v1"|"# aeloon-release-v2") ;;
+  *)
   echo "Unsupported Runtime release metadata." >&2
   exit 2
-}
+  ;;
+esac
 PRODUCT=$(metadata_value "$CHANNEL_FILE" product) || { echo "Invalid Runtime release metadata." >&2; exit 2; }
 VERSION=$(metadata_value "$CHANNEL_FILE" version) || { echo "Invalid Runtime release metadata." >&2; exit 2; }
 SOURCE=$(metadata_value "$CHANNEL_FILE" source) || { echo "Invalid Runtime release metadata." >&2; exit 2; }
@@ -180,7 +184,15 @@ printf '%s\n' "$SOURCE" | LC_ALL=C grep -Eq '^AetherHeart-AI/aeloon-lite-runtime
   exit 2
 }
 SOURCE_COMMIT=${SOURCE#*@}
-TAG="runtime-v$VERSION"
+if [ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ]; then
+  TAG=$(metadata_value "$CHANNEL_FILE" release) || { echo "Invalid unified release metadata." >&2; exit 2; }
+  printf '%s\n' "$TAG" | LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+    echo "Unified release tag is invalid." >&2
+    exit 2
+  }
+else
+  TAG="runtime-v$VERSION"
+fi
 
 if [ -z "$DOWNLOAD_ONLY" ] && INSTALLED_VERSION=$(detect_installed_version); then
   choose_installed_action "$INSTALLED_VERSION"
@@ -209,19 +221,11 @@ case "$(uname -m)" in
   *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 2 ;;
 esac
 ASSET="aeloon-runtime-linux-${RELEASE_ARCH}.tar.gz"
-EXPECTED_SHA256=$(awk -v name="$ASSET" '
-  $2 == name && $1 ~ /^[0-9a-f]{64}$/ { print $1; count++ }
-  END { if (count != 1) exit 2 }
-' "$CHANNEL_FILE") || { echo "Stable metadata does not contain exactly one checksum for $ASSET." >&2; exit 2; }
 ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
 echo "Downloading Aeloon Runtime $VERSION from GitHub..."
 fetch "$ASSET_URL" "$ARCHIVE"
-[ "$(sha256sum "$ARCHIVE" | cut -d ' ' -f 1)" = "$EXPECTED_SHA256" ] || {
-  echo "Runtime archive SHA-256 mismatch; installation stopped." >&2
-  exit 2
-}
 ARCHIVE_PATHS="$TEMP_ROOT/archive-paths"
 tar -tzf "$ARCHIVE" > "$ARCHIVE_PATHS" || { echo "Runtime archive is unreadable." >&2; exit 2; }
 awk '
@@ -236,7 +240,7 @@ if [ -n "$DOWNLOAD_ONLY" ]; then
   if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then
     chown "$SUDO_UID:$SUDO_GID" "$DOWNLOAD_ONLY/$ASSET"
   fi
-  echo "Verified Runtime archive: $DOWNLOAD_ONLY/$ASSET"
+  echo "Downloaded Runtime archive: $DOWNLOAD_ONLY/$ASSET"
   exit 0
 fi
 

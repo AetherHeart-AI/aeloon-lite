@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import subprocess
@@ -29,8 +28,11 @@ class InstallerTests(unittest.TestCase):
             self.assertNotIn("eval ", source)
             if name.startswith("install"):
                 self.assertNotIn("--version", source)
+                self.assertNotIn("SHA-256", source)
+                self.assertNotIn("sha256sum", source)
+                self.assertNotIn("shasum", source)
 
-    def test_desktop_stable_downloads_verified_deb(self) -> None:
+    def test_desktop_stable_downloads_deb_from_unified_release(self) -> None:
         fixture = self._fixture("desktop", b"desktop-fixture")
         result = subprocess.run(
             ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
@@ -45,7 +47,7 @@ class InstallerTests(unittest.TestCase):
             b"desktop-fixture",
         )
 
-    def test_runtime_stable_downloads_verified_archive(self) -> None:
+    def test_runtime_stable_downloads_archive_from_unified_release(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
         result = subprocess.run(
             ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
@@ -267,7 +269,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("Unknown argument", result.stderr)
 
-    def test_malformed_or_duplicate_metadata_is_rejected(self) -> None:
+    def test_duplicate_metadata_is_rejected(self) -> None:
         fixture = self._fixture("desktop", b"fixture")
         channel = fixture["channel"]
         assert isinstance(channel, Path)
@@ -280,20 +282,7 @@ class InstallerTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("exactly one checksum", result.stderr)
-
-    def test_digest_mismatch_fails_closed(self) -> None:
-        fixture = self._fixture("desktop", b"fixture", wrong_digest=True)
-        result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("SHA-256 mismatch", result.stderr)
-        self.assertFalse(Path(fixture["downloads"]).exists())
+        self.assertIn("Invalid desktop release metadata", result.stderr)
 
     def test_network_failure_leaves_no_download(self) -> None:
         fixture = self._fixture("desktop", b"fixture")
@@ -326,22 +315,17 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("unsafe path", result.stderr)
 
     def test_committed_stable_files_have_the_fixed_contract(self) -> None:
-        for product, (repository, asset_count) in {
-            "desktop": ("AetherHeart-AI/aeloon-lite-ui", 5),
-            "runtime": ("AetherHeart-AI/aeloon-lite-runtime", 5),
+        for product, repository in {
+            "desktop": "AetherHeart-AI/aeloon-lite-ui",
+            "runtime": "AetherHeart-AI/aeloon-lite-runtime",
         }.items():
             lines = (ROOT / "channels" / product / "stable").read_text().splitlines()
-            self.assertEqual(lines[0], "# aeloon-release-v1")
+            self.assertEqual(lines[0], "# aeloon-release-v2")
             self.assertEqual(lines[1], f"# product={product}")
             self.assertRegex(lines[2], r"^# version=\d+\.\d+\.\d+$")
-            self.assertRegex(lines[3], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
-            entries = [line.split("  ", 1) for line in lines[4:]]
-            self.assertEqual(len(entries), asset_count)
-            self.assertEqual([entry[1] for entry in entries], sorted(entry[1] for entry in entries))
-            self.assertEqual(len({entry[1] for entry in entries}), asset_count)
-            for digest, name in entries:
-                self.assertRegex(digest, r"^[0-9a-f]{64}$")
-                self.assertNotIn("/", name)
+            self.assertRegex(lines[3], r"^# release=v\d+\.\d+\.\d+$")
+            self.assertRegex(lines[4], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
+            self.assertEqual(len(lines), 5)
 
     def test_publisher_has_no_promotion_or_manifest_layer(self) -> None:
         script = (ROOT / "tools" / "publish_release.sh").read_text()
@@ -350,8 +334,10 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("prerelease", script)
         self.assertNotIn("gh release create", script)
         self.assertIn('gh api --method POST "repos/$DISTRIBUTION_REPOSITORY/releases"', script)
-        self.assertIn("SHA256SUMS", script)
-        self.assertIn("contents/$channel_path", script)
+        self.assertNotIn("SHA256SUMS", script)
+        self.assertNotIn("sha256sum", script)
+        self.assertIn("channels/desktop/stable", script)
+        self.assertIn("channels/runtime/stable", script)
         self.assertIn("git/ref/heads/$branch", script)
         self.assertIn('gh pr create --repo "$DISTRIBUTION_REPOSITORY"', script)
         self.assertIn('gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash', script)
@@ -367,7 +353,9 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("inputs.version", workflow)
         self.assertIn("gh release download", workflow)
         self.assertIn("source_commit", workflow)
-        self.assertIn("sha256sum -c SHA256SUMS", workflow)
+        self.assertNotIn("SHA256SUMS", workflow)
+        self.assertNotIn("sha256sum", workflow)
+        self.assertIn("runtime-bundle.lock.json", workflow)
         self.assertIn("tools/publish_release.sh", workflow)
         self.assertIn("GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}", workflow)
         self.assertIn("event_type=runtime-release", workflow)
@@ -380,7 +368,6 @@ class InstallerTests(unittest.TestCase):
         *,
         desktop_format: str = "deb",
         os_release: str = "ID=ubuntu\n",
-        wrong_digest: bool = False,
     ) -> dict[str, object]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -394,7 +381,6 @@ class InstallerTests(unittest.TestCase):
         channel = root / "stable"
         artifact = root / "artifact"
         artifact.write_bytes(payload)
-        digest = "0" * 64 if wrong_digest else hashlib.sha256(payload).hexdigest()
         version = "1.2.3"
         if product == "desktop":
             repository = "AetherHeart-AI/aeloon-lite-ui"
@@ -405,11 +391,11 @@ class InstallerTests(unittest.TestCase):
         channel.write_text(
             "\n".join(
                 [
-                    "# aeloon-release-v1",
+                    "# aeloon-release-v2",
                     f"# product={product}",
                     f"# version={version}",
+                    "# release=v9.9.9",
                     f"# source={repository}@{'ab' * 20}",
-                    f"{digest}  {name}",
                     "",
                 ]
             ),
