@@ -1,18 +1,30 @@
-name: Publish stable release
+name: Publish official release
 
 on:
   repository_dispatch:
-    types: [publish-runtime, publish-desktop]
+    types: [publish-runtime]
   workflow_dispatch:
     inputs:
       product:
-        description: Source release to replay
+        description: Official source release to publish or replay
         required: true
         type: choice
         options: [runtime, desktop]
       version:
-        description: Stable semantic version to replay
+        description: Stable semantic version to publish or replay
         required: true
+        type: string
+      candidate_run_id:
+        description: Successful Desktop candidate run ID (required for a new Desktop Release)
+        required: false
+        type: string
+      summary_zh:
+        description: Chinese official-release summary (required for Desktop)
+        required: false
+        type: string
+      summary_en:
+        description: English official-release summary (required for Desktop)
+        required: false
         type: string
 
 permissions:
@@ -89,7 +101,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "source_commit=$release_commit" >> "$GITHUB_OUTPUT"
 
-      - name: Download Desktop and pinned Runtime assets
+      - name: Download the tested Desktop candidate and pinned Runtime assets
         if: steps.source.outputs.product == 'desktop'
         id: assets
         shell: bash
@@ -97,12 +109,58 @@ jobs:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
           DESKTOP_VERSION: ${{ steps.source.outputs.version }}
           DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          SUMMARY_ZH: ${{ inputs.summary_zh }}
+          SUMMARY_EN: ${{ inputs.summary_en }}
         run: |
           set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+            echo "A successful Desktop candidate run ID is required for an official Release." >&2
+            exit 2
+          }
+          test -n "$SUMMARY_ZH" || { echo "A Chinese official-release summary is required." >&2; exit 2; }
+          test -n "$SUMMARY_EN" || { echo "An English official-release summary is required." >&2; exit 2; }
+
           asset_dir="$RUNNER_TEMP/unified-assets"
           mkdir -p "$asset_dir"
-          gh release download "v$DESKTOP_VERSION" --repo AetherHeart-AI/aeloon-lite-ui \
-            --pattern 'aeloon-lite-*' --dir "$asset_dir"
+          candidate_dir="$RUNNER_TEMP/desktop-candidate"
+          mkdir -p "$candidate_dir"
+          gh run download "$CANDIDATE_RUN_ID" --repo AetherHeart-AI/aeloon-lite \
+            --name "aeloon-lite-desktop-v${DESKTOP_VERSION}-candidate-all" --dir "$candidate_dir"
+          candidate_manifest="$(find "$candidate_dir" -type f -name candidate.json -print -quit)"
+          test -n "$candidate_manifest" || { echo "Candidate manifest is missing." >&2; exit 1; }
+          test "$(jq -r .schemaVersion "$candidate_manifest")" = 1
+          test "$(jq -r .product "$candidate_manifest")" = desktop
+          test "$(jq -r .platform "$candidate_manifest")" = all
+          test "$(jq -r .version "$candidate_manifest")" = "$DESKTOP_VERSION"
+          test "$(jq -r .source.repository "$candidate_manifest")" = AetherHeart-AI/aeloon-lite-ui
+          test "$(jq -r .source.tag "$candidate_manifest")" = "v$DESKTOP_VERSION"
+          test "$(jq -r .source.commit "$candidate_manifest")" = "$DESKTOP_COMMIT"
+          test "$(jq -r .candidateRunId "$candidate_manifest")" = "$CANDIDATE_RUN_ID"
+          expected_desktop=(
+            "aeloon-lite-$DESKTOP_VERSION-arm64.deb"
+            "aeloon-lite-$DESKTOP_VERSION-arm64.dmg"
+            "aeloon-lite-$DESKTOP_VERSION-arm64.rpm"
+            "aeloon-lite-$DESKTOP_VERSION-x86_64.deb"
+            "aeloon-lite-$DESKTOP_VERSION-x86_64.rpm"
+          )
+          mapfile -t candidate_names < <(jq -r '.assets[].name' "$candidate_manifest" | sort)
+          mapfile -t wanted_desktop < <(printf '%s\n' "${expected_desktop[@]}" | sort)
+          [[ "${candidate_names[*]}" == "${wanted_desktop[*]}" ]] || {
+            echo "Candidate manifest has an unexpected Desktop asset set." >&2
+            exit 1
+          }
+          for name in "${expected_desktop[@]}"; do
+            candidate_asset="$(find "$candidate_dir" -type f -name "$name" -print -quit)"
+            test -n "$candidate_asset" || { echo "Candidate asset is missing: $name" >&2; exit 1; }
+            expected_digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' "$candidate_manifest")"
+            actual_digest="sha256:$(sha256sum "$candidate_asset" | cut -d ' ' -f1)"
+            [[ "$actual_digest" == "$expected_digest" ]] || {
+              echo "Candidate asset failed digest verification: $name" >&2
+              exit 1
+            }
+            cp "$candidate_asset" "$asset_dir/$name"
+          done
 
           lock="$RUNNER_TEMP/runtime-bundle.lock.json"
           gh api "repos/AetherHeart-AI/aeloon-lite-ui/contents/runtime-bundle.lock.json?ref=$DESKTOP_COMMIT" \
@@ -142,10 +200,13 @@ jobs:
           RUNTIME_VERSION: ${{ steps.assets.outputs.runtime_version }}
           RUNTIME_COMMIT: ${{ steps.assets.outputs.runtime_commit }}
           ASSET_DIR: ${{ steps.assets.outputs.asset_dir }}
+          SUMMARY_ZH: ${{ inputs.summary_zh }}
+          SUMMARY_EN: ${{ inputs.summary_en }}
         run: |
           tools/publish_release.sh \
             --desktop-version "$DESKTOP_VERSION" --desktop-source-commit "$DESKTOP_COMMIT" \
             --runtime-version "$RUNTIME_VERSION" --runtime-source-commit "$RUNTIME_COMMIT" \
+            --summary-zh "$SUMMARY_ZH" --summary-en "$SUMMARY_EN" \
             --asset-dir "$ASSET_DIR"
 
       - name: Publish public Runtime assets for SSH deployment
