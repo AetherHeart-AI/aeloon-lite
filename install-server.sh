@@ -3,9 +3,12 @@ set -eu
 
 REPOSITORY="AetherHeart-AI/aeloon-lite"
 RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
+PREFIX=${AELOON_RUNTIME_PREFIX:-/opt/aeloon-runtime}
 HOST=""
 PORT=""
 WORKSPACE_ROOT=""
+TLS_CERT=""
+TLS_KEY=""
 DOWNLOAD_ONLY=""
 IF_INSTALLED=""
 INSTALL_ACTION="install"
@@ -13,7 +16,8 @@ INSTALL_ACTION="install"
 usage() {
   cat <<'EOF'
 Usage: install-server.sh [--host DNS_OR_IPV4] [--port PORT]
-                         [--workspace-root PATH] [--download-only DIRECTORY]
+                         [--workspace-root PATH] [--tls-cert FULLCHAIN_PEM]
+                         [--tls-key PRIVATE_KEY] [--download-only DIRECTORY]
                          [--if-installed overwrite|update|skip]
 EOF
 }
@@ -23,6 +27,8 @@ while [ "$#" -gt 0 ]; do
     --host) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; HOST=$2; shift 2 ;;
     --port) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; PORT=$2; shift 2 ;;
     --workspace-root) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; WORKSPACE_ROOT=$2; shift 2 ;;
+    --tls-cert) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_CERT=$2; shift 2 ;;
+    --tls-key) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_KEY=$2; shift 2 ;;
     --download-only) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; DOWNLOAD_ONLY=$2; shift 2 ;;
     --if-installed)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -36,6 +42,11 @@ while [ "$#" -gt 0 ]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if { [ -z "$TLS_CERT" ] && [ -n "$TLS_KEY" ]; } || { [ -n "$TLS_CERT" ] && [ -z "$TLS_KEY" ]; }; then
+  echo "--tls-cert and --tls-key must be provided together." >&2
+  exit 2
+fi
 
 [ "$(uname -s)" = Linux ] || {
   echo "Aeloon Runtime server installation supports Linux systemd hosts only." >&2
@@ -52,9 +63,11 @@ TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/aeloon-runtime-install.XXXXXX")
 STAGING=""
 RELEASE_BACKUP=""
 RELEASE_ROOT=""
+UPGRADE_STAGING=""
 INSTALL_COMMITTED=0
 cleanup() {
   if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then rm -rf "$STAGING"; fi
+  if [ -n "$UPGRADE_STAGING" ]; then rm -f "$UPGRADE_STAGING"; fi
   if [ -n "$RELEASE_BACKUP" ] && { [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; }; then
     if [ "$INSTALL_COMMITTED" -eq 1 ]; then
       rm -rf "$RELEASE_BACKUP"
@@ -84,7 +97,7 @@ metadata_value() {
 }
 
 detect_installed_version() {
-  current_link="/opt/aeloon-runtime/current"
+  current_link="$PREFIX/current"
   state_file=${AELOON_RUNTIME_STATE_FILE:-/etc/aeloon-runtime/install.json}
   if [ -L "$current_link" ]; then
     current_target=$(readlink "$current_link" 2>/dev/null || true)
@@ -247,11 +260,11 @@ fi
 [ "$(id -u)" -eq 0 ] || { echo "Server deployment requires root; pipe this script to sudo sh." >&2; exit 2; }
 command -v systemctl >/dev/null 2>&1 || { echo "systemctl is unavailable; this host does not use systemd." >&2; exit 2; }
 
-RELEASES_ROOT="/opt/aeloon-runtime/releases"
+RELEASES_ROOT="$PREFIX/releases"
 RELEASE_ROOT="$RELEASES_ROOT/$VERSION"
 RELEASE_CREATED=0
 if [ "$INSTALL_ACTION" = overwrite ] && { [ -e "$RELEASE_ROOT" ] || [ -L "$RELEASE_ROOT" ]; }; then
-  RELEASE_BACKUP="/opt/aeloon-runtime/.release-$VERSION-backup.$$"
+  RELEASE_BACKUP="$PREFIX/.release-$VERSION-backup.$$"
   if [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; then
     echo "Runtime overwrite backup already exists: $RELEASE_BACKUP" >&2
     exit 2
@@ -289,9 +302,42 @@ set -- install --runtime-command "$RUNTIME_COMMAND" --release-root "$RELEASE_ROO
 [ -z "$HOST" ] || set -- "$@" --host "$HOST"
 [ -z "$PORT" ] || set -- "$@" --port "$PORT"
 [ -z "$WORKSPACE_ROOT" ] || set -- "$@" --workspace-root "$WORKSPACE_ROOT"
+[ -z "$TLS_CERT" ] || set -- "$@" --tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"
+
+install_upgrade_wrapper() {
+  UPGRADE_STAGING=$(mktemp "$PREFIX/.upgrade.XXXXXX") || return 1
+  cat > "$UPGRADE_STAGING" <<EOF
+#!/bin/sh
+set -eu
+
+tmp=\$(mktemp "\${TMPDIR:-/tmp}/aeloon-runtime-upgrade.XXXXXX")
+cleanup() { rm -f "\$tmp"; }
+trap cleanup 0 HUP INT TERM
+status=0
+if curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \\
+  --header 'Cache-Control: no-cache' "$RAW_ROOT/install-server.sh" --output "\$tmp"; then
+  if sh "\$tmp" --if-installed update "\$@"; then
+    status=0
+  else
+    status=\$?
+  fi
+else
+  status=\$?
+fi
+rm -f "\$tmp"
+trap - 0 HUP INT TERM
+exit "\$status"
+EOF
+  chmod 0755 "$UPGRADE_STAGING" || return 1
+  mv "$UPGRADE_STAGING" "$PREFIX/upgrade" || return 1
+  UPGRADE_STAGING=""
+}
 
 if "$SERVER_COMMAND" "$@"; then
   INSTALL_COMMITTED=1
+  if ! install_upgrade_wrapper; then
+    echo "Warning: Runtime installed, but $PREFIX/upgrade could not be created." >&2
+  fi
   if [ -n "$RELEASE_BACKUP" ] && { [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; }; then
     rm -rf "$RELEASE_BACKUP"
     RELEASE_BACKUP=""

@@ -157,6 +157,89 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("Keeping the installed Aeloon Runtime 1.2.3", result.stdout)
         self.assertFalse(Path(fixture["curl_log"]).exists())
 
+    def test_runtime_install_writes_working_upgrade_wrapper_and_forwards_tls(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        tools = fixture["tools"]
+        assert isinstance(tools, Path)
+        prefix = tools.parent / "prefix"
+        temporary_root = tools.parent / "tmp"
+        temporary_root.mkdir()
+        server_log = tools.parent / "server.log"
+        write_executable(tools / "id", "#!/bin/sh\nprintf '0\\n'\n")
+        write_executable(tools / "chown", "#!/bin/sh\nexit 0\n")
+        write_executable(tools / "systemctl", "#!/bin/sh\nexit 0\n")
+        write_executable(
+            tools / "tar",
+            """#!/bin/sh
+case " $* " in
+  *" -tzf "*)
+    printf 'aeloon-runtime/bin/aeloon-runtime\\naeloon-runtime/bin/aeloon-runtime-server\\n'
+    ;;
+  *)
+    destination=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = "-C" ]; then destination=$2; break; fi
+      shift
+    done
+    mkdir -p "$destination/aeloon-runtime/bin"
+    printf '#!/bin/sh\\nexit 0\\n' > "$destination/aeloon-runtime/bin/aeloon-runtime"
+    cat > "$destination/aeloon-runtime/bin/aeloon-runtime-server" <<'EOF'
+#!/bin/sh
+printf '%s\\n' "$*" > "$FIXTURE_SERVER_LOG"
+printf '{"current_version":"1.2.3"}\\n' > "$AELOON_RUNTIME_STATE_FILE"
+exit 0
+EOF
+    chmod 0755 "$destination/aeloon-runtime/bin/aeloon-runtime" "$destination/aeloon-runtime/bin/aeloon-runtime-server"
+    ;;
+esac
+""",
+        )
+        env = {
+            **fixture["env"],
+            "AELOON_RUNTIME_PREFIX": str(prefix),
+            "FIXTURE_SERVER_LOG": str(server_log),
+            "TMPDIR": str(temporary_root),
+        }
+        result = subprocess.run(
+            [
+                "sh",
+                str(ROOT / "install-server.sh"),
+                "--tls-cert",
+                "/etc/aeloon/fullchain.pem",
+                "--tls-key",
+                "/etc/aeloon/privkey.pem",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, f"{result.stderr}\n{result.stdout}")
+        wrapper = prefix / "upgrade"
+        self.assertTrue(os.access(wrapper, os.X_OK))
+        self.assertIn("--tls-cert /etc/aeloon/fullchain.pem --tls-key /etc/aeloon/privkey.pem", server_log.read_text())
+
+        upgraded = subprocess.run(
+            [str(wrapper), "--if-installed", "skip"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(upgraded.returncode, 0, f"{upgraded.stderr}\n{upgraded.stdout}")
+        self.assertIn("Keeping the installed Aeloon Runtime 1.2.3", upgraded.stdout)
+        self.assertEqual(list(temporary_root.iterdir()), [])
+
+        failed = subprocess.run(
+            [str(wrapper)],
+            capture_output=True,
+            text=True,
+            env={**env, "FIXTURE_FAIL_INSTALLER_FETCH": "1"},
+            check=False,
+        )
+        self.assertEqual(failed.returncode, 22)
+        self.assertEqual(list(temporary_root.iterdir()), [])
+
     def test_uninstall_help_documents_safe_data_defaults(self) -> None:
         for name in ("uninstall.sh", "uninstall-server.sh"):
             result = subprocess.run(
@@ -422,6 +505,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  */install-server.sh)
+    [ -z "${FIXTURE_FAIL_INSTALLER_FETCH:-}" ] || exit 22
+    cp "$FIXTURE_INSTALLER" "$output"
+    ;;
   *raw.githubusercontent.com*) cp "$FIXTURE_CHANNEL" "$output" ;;
   *)
     [ -z "${FIXTURE_CURL_LOG:-}" ] || printf '%s\n' "$url" >> "$FIXTURE_CURL_LOG"
@@ -441,6 +528,7 @@ esac
             "FIXTURE_ARTIFACT": str(artifact),
             "FIXTURE_CURL_LOG": str(curl_log),
             "FIXTURE_INSTALL_LOG": str(install_log),
+            "FIXTURE_INSTALLER": str(ROOT / "install-server.sh"),
             "AELOON_RUNTIME_STATE_FILE": str(state_file),
         }
         return {

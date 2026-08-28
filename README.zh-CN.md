@@ -34,6 +34,9 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
 然后使用与本地模式相同的命令安装 Desktop，首次启动时选择**连接 Remote 服务器**，
 扫描二维码或粘贴配对码。连接成功后会保存配置，后续自动重连。
 
+公网/私网地址、CA 证书、配对、升级、状态检查与卸载的简明步骤参见
+[远程部署教程](docs/remote-deployment.zh-CN.md)。
+
 ## 卸载与删除数据
 
 卸载 Desktop，但保留设置、凭据、缓存、Runtime 数据和外部项目：

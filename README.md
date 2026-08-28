@@ -35,6 +35,9 @@ Then install Desktop with the same local command, choose **Connect to a remote s
 the QR code or paste the pairing code. A successful connection is saved and reconnects
 automatically.
 
+For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
+status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
+
 ## Uninstall and delete data
 
 Remove Desktop while preserving settings, credentials, cache, Runtime data, and external projects:
