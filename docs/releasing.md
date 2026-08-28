@@ -1,117 +1,77 @@
-# Stable release operations
+# Unified stable release operations / 统一稳定版发布流程
 
-Runtime and Desktop build and publish their own source Releases. This repository is the public
-distribution surface: it downloads the exact assets from a source Release, verifies them, runs
-`tools/publish_release.sh` locally, and updates the public stable channel.
+Desktop and Runtime source repositories build independently. Public distribution is Desktop-versioned:
+one `vX.Y.Z` Release contains five Desktop installers and the five Runtime archives pinned by that
+Desktop commit. Both stable metadata files point to that same tag and contain no artifact hashes.
 
-## Release flow
+Desktop 与 Runtime 源仓库独立构建。公开分发统一使用 Desktop 版本号：每个 `vX.Y.Z`
+Release 同时包含 5 个 Desktop 安装包，以及该 Desktop commit 锁定的 5 个 Runtime 包。
+两份 stable 元数据同时指向该 tag，不包含产物哈希。
 
-```mermaid
-flowchart TD
-    subgraph runtimeRepo [aeloon-lite-runtime]
-      rtRelease["runtime-release.yml\nmanual build + smoke"]
-      rtOwn["source Release runtime-vX.Y.Z\n5 archives + SHA256SUMS"]
-    end
-    subgraph uiRepo [aeloon-lite-ui]
-      dtRelease["desktop-release.yml\nmanual build + smoke"]
-      dtOwn["source Release vX.Y.Z\n5 installers + SHA256SUMS"]
-      lockUpdate["runtime-lock-update.yml\ndispatch + manual fallback"]
-    end
-    subgraph liteRepo [aeloon-lite]
-      publish["publish.yml\ndownload + verify + publish_release.sh"]
-      pubOut["public Release + channels/*/stable"]
-    end
-    rtRelease --> rtOwn
-    rtOwn -->|"repository_dispatch: publish-runtime"| publish
-    dtRelease --> dtOwn
-    dtOwn -->|"repository_dispatch: publish-desktop"| publish
-    publish --> pubOut
-    publish -->|"after Runtime is public\nrepository_dispatch: runtime-release"| lockUpdate
+## Release flow / 发布流程
+
+1. Runtime `main` bumps its version and runs `runtime-release.yml`. The source Release contains the
+   fixed five Runtime assets and dispatches `publish-runtime`.
+2. Distribution validates the Runtime source tag and asset names, then dispatches the Desktop
+   Runtime-lock workflow. That PR pins Runtime version, source commit, URLs, and protocol types.
+3. After the lock PR merges, Desktop bumps its version and runs `desktop-release.yml`. Its source
+   Release contains the fixed five Desktop assets and dispatches `publish-desktop`.
+4. Distribution resolves `runtime-bundle.lock.json` at the Desktop tag, downloads both fixed source
+   asset sets, and creates one public `vX.Y.Z` Release containing all ten assets.
+5. One protected auto-merge PR updates `channels/desktop/stable` and `channels/runtime/stable`
+   together. Installers read only these current stable records and do not verify artifact hashes.
+
+对应中文流程：先发布 Runtime 源 Release 并合入 Desktop Runtime-lock PR；再发布 Desktop
+源 Release；分发仓库从 Desktop tag 读取锁定的 Runtime，将两边共 10 个资产合入同一个
+公开 `vX.Y.Z` Release，最后通过一个受保护 PR 同时更新两份 stable 元数据。
+
+## Release notes / Release 说明
+
+After every public release, the release owner must replace the generated reminder with a curated,
+bilingual summary. Each language section must include:
+
+- the local Desktop and Remote Runtime installation commands;
+- the bundled Desktop and Runtime versions;
+- major PRs merged since the previous public Desktop release, across UI, Runtime, and distribution;
+- a direct PR link plus one plain-language sentence explaining what changed; and
+- only user-visible or operationally important changes—omit version-bump and stable-pointer PRs.
+
+每次公开发版后，发布负责人必须把自动生成的提示替换为人工整理的双语说明。中英文部分
+都必须包含：本地 Desktop 与 Remote Runtime 安装命令、两个组件版本，以及自上一个公开
+Desktop 版本以来 UI、Runtime、分发三仓的主要 PR。每个 PR 都要给出直达链接，并用一句
+易懂的话说明改了什么；版本号提升和 stable 指针等纯机械 PR 不列入主要更改。
+
+Recommended structure / 推荐结构：
+
+```markdown
+## 中文
+### 安装
+### 版本
+### 主要更改
+- [UI #123](...)：改动说明。
+
+## English
+### Installation
+### Versions
+### Major changes
+- [UI #123](...): What changed.
 ```
 
-The public URLs do not change. Installers still read `channels/desktop/stable` and
-`channels/runtime/stable` from this repository, and the tag formats remain `vX.Y.Z` for Desktop
-and `runtime-vX.Y.Z` for Runtime.
-
-## Normal release transaction
-
-1. Merge a stable version bump into protected `main` in the source repository and wait for normal
-   CI.
-2. Dispatch the source workflow from `main`. It derives the version from `package.json` or
-   `pyproject.toml`, builds every artifact, runs smoke tests, creates the immutable source tag, and
-   creates the source Release with five assets and `SHA256SUMS`.
-3. The source workflow sends `publish-runtime` or `publish-desktop` to this repository with the
-   product, version, and source commit.
-4. `publish.yml` resolves the source tag, downloads its Release assets, verifies the tag commit,
-   checks the fixed asset set and every SHA-256 entry, then runs `tools/publish_release.sh`.
-5. The publisher creates or resumes the public Draft, compares GitHub asset digests, makes the
-   Release public, and opens an auto-merge PR for the matching stable channel file. It waits for
-   that PR to merge before a Runtime publication sends `runtime-release` to the Desktop lock
-   workflow.
-6. The lock workflow reads the public Runtime stable checksums, copies protocol types when needed,
-   and opens one auto-merge PR. Desktop stays on its previous Runtime until that PR merges.
-
-Published Releases are immutable. A rerun with the same source commit and identical bytes repairs
-an interrupted dispatch or channel update; different bytes require a new version.
-
-## Manual fallback and replay
-
-Start a normal source release manually:
+## Replay and recovery / 重放与恢复
 
 ```bash
-gh workflow run runtime-release.yml \
-  --repo AetherHeart-AI/aeloon-lite-runtime --ref main
+gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
+  -f product=runtime -f version=0.1.7
 
-gh workflow run desktop-release.yml \
-  --repo AetherHeart-AI/aeloon-lite-ui --ref main
+gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
+  -f product=desktop -f version=0.0.25
 ```
 
-If a source Release exists but its dispatch was lost, replay the distribution step. The workflow
-resolves the source tag and commit itself, so no commit hash needs to be copied:
+A Runtime replay only re-sends the Desktop lock update. A Desktop replay reconstructs the unified
+asset set from immutable source tags. Published public assets are never overwritten; a different
+asset set requires a new Desktop version. Rollback restores both stable files to the same older
+unified tag through a normal PR.
 
-```bash
-gh workflow run publish.yml \
-  --repo AetherHeart-AI/aeloon-lite \
-  -f product=runtime -f version=0.1.5
-
-gh workflow run publish.yml \
-  --repo AetherHeart-AI/aeloon-lite \
-  -f product=desktop -f version=0.0.22
-```
-
-If the public Runtime publication succeeded but the Desktop lock dispatch was lost, replay the lock
-update directly:
-
-```bash
-gh workflow run runtime-lock-update.yml \
-  --repo AetherHeart-AI/aeloon-lite-ui \
-  -f release_tag=runtime-v0.1.5
-```
-
-Inspect the source Release and stable channel before replaying a version. The publisher rejects a
-Release whose assets differ from the current build and never overwrites a published Release.
-
-## Unified release token
-
-Create one organization Actions secret under `AetherHeart-AI` with the name
-`AELOON_RELEASE_TOKEN`, and set its repository access to only these three repositories:
-
-- `AetherHeart-AI/aeloon-lite-runtime`
-- `AetherHeart-AI/aeloon-lite-ui`
-- `AetherHeart-AI/aeloon-lite`
-
-The PAT must be scoped to only these three repositories and grant `Contents: Read and write` and
-`Pull requests: Read and write`. The broader scope simplifies setup but means that a workflow in
-any of the three repositories can use the same token's write access. Source Releases and public
-distribution Releases still use each job's scoped `GITHUB_TOKEN` for their own repository.
-
-## Recovery rules
-
-- A build, package, install, or source asset verification failure leaves the current stable file
-  unchanged.
-- If source Release creation succeeds but distribution is not updated, rerun `publish.yml` with
-  the same product and version.
-- If distribution succeeds but the lock PR is not opened, rerun `runtime-lock-update.yml` with the
-  public Runtime tag.
-- To roll back, restore an older `channels/<product>/stable` value from Git history. Never delete,
-  replace, or mutate a published Release.
+Runtime 重放只会重新触发 Desktop 锁更新；Desktop 重放会从不可变源 tag 重建统一资产集。
+已公开资产不可覆盖，资产集变化必须提升 Desktop 版本。回滚必须通过普通 PR，把两份
+stable 文件同时恢复到同一个旧统一 tag。

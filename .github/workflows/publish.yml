@@ -6,12 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       product:
-        description: Product to publish
+        description: Source release to replay
         required: true
         type: choice
-        options:
-          - runtime
-          - desktop
+        options: [runtime, desktop]
       version:
         description: Stable semantic version to replay
         required: true
@@ -26,17 +24,15 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish ${{ github.event.client_payload.product || inputs.product }} ${{ github.event.client_payload.version || inputs.version }}
+    name: Process ${{ github.event.client_payload.product || inputs.product }} ${{ github.event.client_payload.version || inputs.version }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Download and verify source Release
+      - name: Resolve source Release
         id: source
         shell: bash
         env:
@@ -46,24 +42,21 @@ jobs:
           INPUT_SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
         run: |
           set -euo pipefail
-          test -n "${GH_TOKEN:-}" || {
-            echo "AELOON_RELEASE_TOKEN is required." >&2
-            exit 1
-          }
-
+          test -n "${GH_TOKEN:-}" || { echo "AELOON_RELEASE_TOKEN is required." >&2; exit 1; }
           product="$INPUT_PRODUCT"
           version="$INPUT_VERSION"
           source_commit="$INPUT_SOURCE_COMMIT"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 2
           case "$product" in
             runtime)
               source_repository="AetherHeart-AI/aeloon-lite-runtime"
               source_tag="runtime-v$version"
               expected=(
-                "aeloon-runtime-darwin-aarch64.tar.zst"
-                "aeloon-runtime-linux-aarch64.tar.gz"
-                "aeloon-runtime-linux-aarch64.tar.zst"
-                "aeloon-runtime-linux-x86_64.tar.gz"
-                "aeloon-runtime-linux-x86_64.tar.zst"
+                aeloon-runtime-darwin-aarch64.tar.zst
+                aeloon-runtime-linux-aarch64.tar.gz
+                aeloon-runtime-linux-aarch64.tar.zst
+                aeloon-runtime-linux-x86_64.tar.gz
+                aeloon-runtime-linux-x86_64.tar.zst
               )
               ;;
             desktop)
@@ -77,93 +70,90 @@ jobs:
                 "aeloon-lite-$version-x86_64.rpm"
               )
               ;;
-            *)
-              echo "Invalid product: $product" >&2
-              exit 2
-              ;;
+            *) echo "Invalid product: $product" >&2; exit 2 ;;
           esac
-          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
-            echo "Only stable semantic versions are supported: $version" >&2
-            exit 2
-          }
-
           release_commit="$(gh api "repos/$source_repository/commits/$source_tag" --jq .sha)"
-          [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "Could not resolve the source tag $source_tag to a commit." >&2
-            exit 1
-          }
+          [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
           if [[ -n "$source_commit" && "$source_commit" != "$release_commit" ]]; then
             echo "Dispatch source commit does not match $source_tag." >&2
-            echo "Dispatch: $source_commit" >&2
-            echo "Tag:      $release_commit" >&2
             exit 1
           fi
-          source_commit="$release_commit"
-
-          asset_dir="$RUNNER_TEMP/source-release"
-          mkdir -p "$asset_dir"
-          gh release download "$source_tag" \
-            --repo "$source_repository" \
-            --pattern '*' \
-            --dir "$asset_dir" \
-            --clobber
-
-          expected_files="$RUNNER_TEMP/expected-source-files"
-          actual_files="$RUNNER_TEMP/actual-source-files"
-          checksum_names="$RUNNER_TEMP/checksum-names"
-          printf '%s\n' "${expected[@]}" SHA256SUMS | sort > "$expected_files"
-          find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort > "$actual_files"
-          diff -u "$expected_files" "$actual_files"
-
-          checksums="$asset_dir/SHA256SUMS"
-          grep -Fx '# aeloon-release-v1' "$checksums"
-          grep -Fx "# product=$product" "$checksums"
-          grep -Fx "# version=$version" "$checksums"
-          grep -Fx "# source=$source_repository@$source_commit" "$checksums"
-          grep -Ev '^(#|$)' "$checksums" | awk '{print $2}' | sort > "$checksum_names"
-          printf '%s\n' "${expected[@]}" | sort | diff -u - "$checksum_names"
-          (
-            cd "$asset_dir"
-            sha256sum -c SHA256SUMS
-          )
-
-          publish_dir="$RUNNER_TEMP/publish-assets"
-          mkdir -p "$publish_dir"
-          for name in "${expected[@]}"; do
-            cp "$asset_dir/$name" "$publish_dir/$name"
-          done
+          mapfile -t actual < <(gh release view "$source_tag" --repo "$source_repository" \
+            --json assets --jq '.assets[].name' | sort)
+          mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
+          [[ "${actual[*]}" == "${wanted[*]}" ]] || {
+            echo "Source Release $source_tag has an unexpected asset set." >&2
+            exit 1
+          }
           echo "product=$product" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
-          echo "asset_dir=$publish_dir" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$release_commit" >> "$GITHUB_OUTPUT"
 
-      - name: Publish distribution release and stable channel
+      - name: Download Desktop and pinned Runtime assets
+        if: steps.source.outputs.product == 'desktop'
+        id: assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
-          PRODUCT: ${{ steps.source.outputs.product }}
-          VERSION: ${{ steps.source.outputs.version }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
-          ASSET_DIR: ${{ steps.source.outputs.asset_dir }}
+          DESKTOP_VERSION: ${{ steps.source.outputs.version }}
+          DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
         run: |
           set -euo pipefail
+          asset_dir="$RUNNER_TEMP/unified-assets"
+          mkdir -p "$asset_dir"
+          gh release download "v$DESKTOP_VERSION" --repo AetherHeart-AI/aeloon-lite-ui \
+            --pattern 'aeloon-lite-*' --dir "$asset_dir"
+
+          lock="$RUNNER_TEMP/runtime-bundle.lock.json"
+          gh api "repos/AetherHeart-AI/aeloon-lite-ui/contents/runtime-bundle.lock.json?ref=$DESKTOP_COMMIT" \
+            --jq .content | base64 --decode > "$lock"
+          runtime_version="$(jq -r .runtime.version "$lock")"
+          runtime_commit="$(jq -r .runtime.commit "$lock")"
+          runtime_tag="runtime-v$runtime_version"
+          [[ "$runtime_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$runtime_commit" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api "repos/AetherHeart-AI/aeloon-lite-runtime/commits/$runtime_tag" --jq .sha)" = "$runtime_commit"
+          expected_runtime=(
+            aeloon-runtime-darwin-aarch64.tar.zst
+            aeloon-runtime-linux-aarch64.tar.gz
+            aeloon-runtime-linux-aarch64.tar.zst
+            aeloon-runtime-linux-x86_64.tar.gz
+            aeloon-runtime-linux-x86_64.tar.zst
+          )
+          mapfile -t actual_runtime < <(gh release view "$runtime_tag" \
+            --repo AetherHeart-AI/aeloon-lite-runtime --json assets --jq '.assets[].name' | sort)
+          mapfile -t wanted_runtime < <(printf '%s\n' "${expected_runtime[@]}" | sort)
+          [[ "${actual_runtime[*]}" == "${wanted_runtime[*]}" ]] || {
+            echo "Runtime source Release $runtime_tag has an unexpected asset set." >&2
+            exit 1
+          }
+          gh release download "$runtime_tag" --repo AetherHeart-AI/aeloon-lite-runtime \
+            --pattern 'aeloon-runtime-*' --dir "$asset_dir"
+          echo "runtime_version=$runtime_version" >> "$GITHUB_OUTPUT"
+          echo "runtime_commit=$runtime_commit" >> "$GITHUB_OUTPUT"
+          echo "asset_dir=$asset_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Publish unified distribution Release
+        if: steps.source.outputs.product == 'desktop'
+        env:
+          GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          DESKTOP_VERSION: ${{ steps.source.outputs.version }}
+          DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
+          RUNTIME_VERSION: ${{ steps.assets.outputs.runtime_version }}
+          RUNTIME_COMMIT: ${{ steps.assets.outputs.runtime_commit }}
+          ASSET_DIR: ${{ steps.assets.outputs.asset_dir }}
+        run: |
           tools/publish_release.sh \
-            --product "$PRODUCT" \
-            --version "$VERSION" \
-            --source-commit "$SOURCE_COMMIT" \
+            --desktop-version "$DESKTOP_VERSION" --desktop-source-commit "$DESKTOP_COMMIT" \
+            --runtime-version "$RUNTIME_VERSION" --runtime-source-commit "$RUNTIME_COMMIT" \
             --asset-dir "$ASSET_DIR"
 
       - name: Notify Desktop Runtime-lock workflow
         if: steps.source.outputs.product == 'runtime'
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
           VERSION: ${{ steps.source.outputs.version }}
         run: |
-          set -euo pipefail
-          test -n "${GH_TOKEN:-}" || {
-            echo "AELOON_RELEASE_TOKEN is required for Runtime releases." >&2
-            exit 1
-          }
           gh api --method POST repos/AetherHeart-AI/aeloon-lite-ui/dispatches \
             -f event_type=runtime-release \
             -f "client_payload[release_tag]=runtime-v${VERSION}"

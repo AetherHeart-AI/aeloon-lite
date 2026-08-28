@@ -156,10 +156,14 @@ else
   }
 fi
 
-[ "$(sed -n '1p' "$CHANNEL_FILE")" = "# aeloon-release-v1" ] || {
+CHANNEL_SCHEMA=$(sed -n '1p' "$CHANNEL_FILE")
+case "$CHANNEL_SCHEMA" in
+  "# aeloon-release-v1"|"# aeloon-release-v2") ;;
+  *)
   echo "Unsupported desktop release metadata." >&2
   exit 2
-}
+  ;;
+esac
 PRODUCT=$(metadata_value "$CHANNEL_FILE" product) || { echo "Invalid desktop release metadata." >&2; exit 2; }
 VERSION=$(metadata_value "$CHANNEL_FILE" version) || { echo "Invalid desktop release metadata." >&2; exit 2; }
 SOURCE=$(metadata_value "$CHANNEL_FILE" source) || { echo "Invalid desktop release metadata." >&2; exit 2; }
@@ -173,7 +177,15 @@ printf '%s\n' "$SOURCE" | LC_ALL=C grep -Eq '^AetherHeart-AI/aeloon-lite-ui@[0-9
   exit 2
 }
 SOURCE_COMMIT=${SOURCE#*@}
-TAG="v$VERSION"
+if [ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ]; then
+  TAG=$(metadata_value "$CHANNEL_FILE" release) || { echo "Invalid unified release metadata." >&2; exit 2; }
+  printf '%s\n' "$TAG" | LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+    echo "Unified release tag is invalid." >&2
+    exit 2
+  }
+else
+  TAG="v$VERSION"
+fi
 
 SYSTEM=$(uname -s)
 MACHINE=$(uname -m)
@@ -250,33 +262,17 @@ if [ -z "$DOWNLOAD_ONLY" ] && INSTALLED_VERSION=$(detect_installed_version); the
 fi
 
 ASSET="aeloon-lite-${VERSION}-${RELEASE_ARCH}.${PACKAGE_KIND}"
-EXPECTED_SHA256=$(awk -v name="$ASSET" '
-  $2 == name && $1 ~ /^[0-9a-f]{64}$/ { print $1; count++ }
-  END { if (count != 1) exit 2 }
-' "$CHANNEL_FILE") || { echo "Stable metadata does not contain exactly one checksum for $ASSET." >&2; exit 2; }
 ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
 echo "Downloading aeloon-lite $VERSION from GitHub..."
 fetch "$ASSET_URL" "$ARCHIVE"
-if [ "$SYSTEM" = Darwin ]; then
-  command -v shasum >/dev/null 2>&1 || { echo "shasum is required." >&2; exit 2; }
-  ACTUAL_SHA256=$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f 1)
-else
-  command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required." >&2; exit 2; }
-  ACTUAL_SHA256=$(sha256sum "$ARCHIVE" | cut -d ' ' -f 1)
-fi
-[ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] || {
-  echo "Installer SHA-256 mismatch; installation stopped." >&2
-  exit 2
-}
-
 save_installer() {
   destination=$1
   mkdir -p "$destination"
   SAVED_INSTALLER="$destination/$ASSET"
   cp "$ARCHIVE" "$SAVED_INSTALLER"
-  echo "Verified installer: $SAVED_INSTALLER"
+  echo "Downloaded installer: $SAVED_INSTALLER"
 }
 
 if [ -n "$DOWNLOAD_ONLY" ]; then
