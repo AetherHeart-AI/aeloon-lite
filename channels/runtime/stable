@@ -1,5 +1,5 @@
 # aeloon-release-v2
 # product=runtime
-# version=0.1.6
-# release=v0.0.24
-# source=AetherHeart-AI/aeloon-lite-runtime@cf0eb5ef5e99e1d9843b133af4395e7468c96bb1
+# version=0.1.7
+# release=v0.0.25
+# source=AetherHeart-AI/aeloon-lite-runtime@b83c01d672df724e174edb166c78785532ea707f
