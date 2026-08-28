@@ -148,6 +148,44 @@ jobs:
             --runtime-version "$RUNTIME_VERSION" --runtime-source-commit "$RUNTIME_COMMIT" \
             --asset-dir "$ASSET_DIR"
 
+      - name: Publish public Runtime assets for SSH deployment
+        if: steps.source.outputs.product == 'runtime'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          VERSION: ${{ steps.source.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          tag="runtime-v$VERSION"
+          asset_dir="$RUNNER_TEMP/runtime-assets"
+          mkdir -p "$asset_dir"
+          gh release download "$tag" --repo AetherHeart-AI/aeloon-lite-runtime \
+            --pattern 'aeloon-runtime-*' --dir "$asset_dir"
+          expected=(
+            aeloon-runtime-darwin-aarch64.tar.zst
+            aeloon-runtime-linux-aarch64.tar.gz
+            aeloon-runtime-linux-aarch64.tar.zst
+            aeloon-runtime-linux-x86_64.tar.gz
+            aeloon-runtime-linux-x86_64.tar.zst
+          )
+          mapfile -t actual < <(find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
+          [[ "${actual[*]}" == "${wanted[*]}" ]]
+
+          if ! gh release view "$tag" --repo AetherHeart-AI/aeloon-lite >/dev/null 2>&1; then
+            gh release create "$tag" --repo AetherHeart-AI/aeloon-lite --target main --draft \
+              --title "Aeloon Runtime $tag" \
+              --notes "Public Runtime assets for SSH deployment from AetherHeart-AI/aeloon-lite-runtime@$SOURCE_COMMIT."
+          fi
+          if [[ "$(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite --json isDraft --jq .isDraft)" == true ]]; then
+            gh release upload "$tag" --repo AetherHeart-AI/aeloon-lite --clobber "$asset_dir"/*
+          fi
+          mapfile -t published < <(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite \
+            --json assets --jq '.assets[].name' | sort)
+          [[ "${published[*]}" == "${wanted[*]}" ]]
+          gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --latest=false
+
       - name: Notify Desktop Runtime-lock workflow
         if: steps.source.outputs.product == 'runtime'
         env:

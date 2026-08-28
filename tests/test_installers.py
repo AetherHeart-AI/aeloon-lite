@@ -440,6 +440,8 @@ esac
         self.assertNotIn("sha256sum", workflow)
         self.assertIn("runtime-bundle.lock.json", workflow)
         self.assertIn("tools/publish_release.sh", workflow)
+        self.assertIn("Publish public Runtime assets for SSH deployment", workflow)
+        self.assertIn("--repo AetherHeart-AI/aeloon-lite --draft=false --latest=false", workflow)
         self.assertIn("GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}", workflow)
         self.assertIn("event_type=runtime-release", workflow)
         self.assertIn("AELOON_RELEASE_TOKEN", workflow)
