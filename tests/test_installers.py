@@ -437,6 +437,10 @@ esac
         self.assertIn('"repos/$repository/commits/$commit/pulls"', script)
         self.assertIn("### 自上个正式版以来的 PR", script)
         self.assertIn("### Pull requests since the previous official release", script)
+        self.assertNotIn("### 安装", script)
+        self.assertNotIn("### Installation", script)
+        self.assertNotIn("发布负责人需在发布后", script)
+        self.assertNotIn("After publication, the release owner", script)
 
     def test_candidate_workflow_is_downloadable_but_cannot_publish(self) -> None:
         workflow = (ROOT / ".github/workflows/candidate.yml").read_text()
