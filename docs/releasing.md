@@ -17,31 +17,36 @@ Release 同时包含 5 个 Desktop 安装包，以及该 Desktop commit 锁定�
 3. After the lock PR merges, Desktop bumps its version and runs `desktop-release.yml`. Its immutable
    source Release contains the fixed five Desktop assets and dispatches `publish-desktop`.
 4. `candidate.yml` handles that dispatch. It verifies the source tag and digests, then uploads a
-   seven-day Actions artifact named `aeloon-lite-desktop-vX.Y.Z-candidate`. It does not create a tag
-   or Release and cannot update stable metadata.
+   seven-day, all-platform Actions artifact. A manual run may instead select only macOS arm64,
+   Linux arm64, or Linux x86_64 for focused testing. No candidate creates a tag or Release or can
+   update stable metadata.
 5. Testers download the candidate from the Actions run page and complete acceptance testing.
 6. The release owner manually runs `publish.yml` with the tested candidate run ID and required
-   Chinese and English summaries. The workflow promotes those exact Desktop files, resolves the
-   Runtime pinned by the Desktop commit, and creates the public `vX.Y.Z` Release.
+   Chinese and English summaries. Official publication accepts only an `all` candidate, promotes
+   those exact Desktop files, resolves the Runtime pinned by the Desktop commit, and creates the
+   public `vX.Y.Z` Release.
 7. The publisher automatically records every merged PR between the previous and current official
    versions in UI, Runtime, and distribution, then updates both stable files through one protected PR.
 
 对应中文流程：先发布 Runtime 并合入 Desktop Runtime-lock PR；Desktop 构建完成后只产生
-可下载的 Actions 候选产物。候选版验收通过后，发布负责人手动选择该候选运行并填写中英文
-说明；正式流程才创建公开 Release、生成两个正式版本之间三仓的完整 PR 清单，并更新 stable。
+可下载的 Actions 候选产物。手动运行候选流程时，可以只选择 macOS arm64、Linux arm64 或
+Linux x86_64；正式发版必须使用全平台 `all` 候选。候选版验收通过后，发布负责人手动选择
+该候选运行并填写中英文说明；正式流程才创建公开 Release、生成两个正式版本之间三仓的完整
+PR 清单，并更新 stable。
 
 ## Candidate isolation / 候选版隔离
 
 A test candidate is an Actions artifact, not a GitHub prerelease, draft Release, or floating tag.
 Therefore it never appears on the Releases page, cannot become Latest, cannot be consumed by the
 installers, and expires automatically after seven days. The artifact contains `candidate.json` with
-the source tag, full commit, asset names, sizes, and SHA-256 digests. Official publication requires
-the candidate run ID and verifies those same bytes again before promotion.
+the selected platform, source tag, full commit, asset names, sizes, and SHA-256 digests. Official
+publication requires an all-platform candidate run ID and verifies those same bytes again before
+promotion.
 
 测试候选版只使用 Actions artifact，不使用 GitHub prerelease、draft Release 或浮动 tag。
 因此它不会出现在 Releases 页面、不会成为 Latest、不会被安装器读取，并会在 7 天后自动
-过期。候选包中的 `candidate.json` 固定源 tag、完整 commit、资产名、大小与 SHA-256；正式
-发布必须提供候选运行 ID，并在提升前再次校验同一批文件。
+过期。候选包中的 `candidate.json` 固定所选平台、源 tag、完整 commit、资产名、大小与
+SHA-256；正式发布必须提供全平台候选运行 ID，并在提升前再次校验同一批文件。
 
 ## Release notes / Release 说明
 
@@ -82,7 +87,7 @@ gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
   -f product=runtime -f version=0.1.7
 
 gh workflow run candidate.yml --repo AetherHeart-AI/aeloon-lite \
-  -f version=0.0.25
+  -f version=0.0.25 -f platform=linux-arm64
 
 gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
   -f product=desktop -f version=0.0.25 \

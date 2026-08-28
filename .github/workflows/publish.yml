@@ -126,11 +126,12 @@ jobs:
           candidate_dir="$RUNNER_TEMP/desktop-candidate"
           mkdir -p "$candidate_dir"
           gh run download "$CANDIDATE_RUN_ID" --repo AetherHeart-AI/aeloon-lite \
-            --name "aeloon-lite-desktop-v${DESKTOP_VERSION}-candidate" --dir "$candidate_dir"
+            --name "aeloon-lite-desktop-v${DESKTOP_VERSION}-candidate-all" --dir "$candidate_dir"
           candidate_manifest="$(find "$candidate_dir" -type f -name candidate.json -print -quit)"
           test -n "$candidate_manifest" || { echo "Candidate manifest is missing." >&2; exit 1; }
           test "$(jq -r .schemaVersion "$candidate_manifest")" = 1
           test "$(jq -r .product "$candidate_manifest")" = desktop
+          test "$(jq -r .platform "$candidate_manifest")" = all
           test "$(jq -r .version "$candidate_manifest")" = "$DESKTOP_VERSION"
           test "$(jq -r .source.repository "$candidate_manifest")" = AetherHeart-AI/aeloon-lite-ui
           test "$(jq -r .source.tag "$candidate_manifest")" = "v$DESKTOP_VERSION"
