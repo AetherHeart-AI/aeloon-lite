@@ -410,7 +410,7 @@ esac
             self.assertRegex(lines[4], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
             self.assertEqual(len(lines), 5)
 
-    def test_publisher_has_no_promotion_or_manifest_layer(self) -> None:
+    def test_publisher_keeps_the_official_release_contract_small(self) -> None:
         script = (ROOT / "tools" / "publish_release.sh").read_text()
         self.assertNotIn("repository_dispatch", script)
         self.assertNotIn("release-manifest", script)
@@ -423,21 +423,51 @@ esac
         self.assertIn("channels/runtime/stable", script)
         self.assertIn("git/ref/heads/$branch", script)
         self.assertIn('gh pr create --repo "$DISTRIBUTION_REPOSITORY"', script)
-        self.assertIn('gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash', script)
+        self.assertIn(
+            'gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" '
+            '--auto --squash --delete-branch',
+            script,
+        )
         self.assertIn("Timed out waiting for stable channel PR", script)
+        self.assertIn("--summary-zh", script)
+        self.assertIn("--summary-en", script)
+        self.assertIn("printf '%s\\n' \"$summary_zh\"", script)
+        self.assertIn("printf '%s\\n' \"$summary_en\"", script)
+        self.assertIn("collect_pull_requests", script)
+        self.assertIn('"repos/$repository/commits/$commit/pulls"', script)
+        self.assertIn("### 自上个正式版以来的 PR", script)
+        self.assertIn("### Pull requests since the previous official release", script)
 
-    def test_publish_workflow_receives_and_verifies_source_releases(self) -> None:
+    def test_candidate_workflow_is_downloadable_but_cannot_publish(self) -> None:
+        workflow = (ROOT / ".github/workflows/candidate.yml").read_text()
+        self.assertIn("types: [publish-desktop]", workflow)
+        self.assertIn("actions/upload-artifact", workflow)
+        self.assertIn("retention-days: 7", workflow)
+        self.assertIn("candidate.json", workflow)
+        self.assertIn("sha256sum", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("gh release create", workflow)
+        self.assertNotIn("gh release upload", workflow)
+        self.assertNotIn("gh release edit", workflow)
+        self.assertNotIn("channels/desktop/stable", workflow)
+
+    def test_official_publish_promotes_a_tested_candidate_and_verifies_sources(self) -> None:
         workflow = (ROOT / ".github/workflows/publish.yml").read_text()
         self.assertIn("repository_dispatch", workflow)
         self.assertIn("publish-runtime", workflow)
-        self.assertIn("publish-desktop", workflow)
+        self.assertNotIn("types: [publish-runtime, publish-desktop]", workflow)
         self.assertIn("workflow_dispatch", workflow)
         self.assertIn("inputs.product", workflow)
         self.assertIn("inputs.version", workflow)
+        self.assertIn("inputs.candidate_run_id", workflow)
+        self.assertIn("inputs.summary_zh", workflow)
+        self.assertIn("inputs.summary_en", workflow)
+        self.assertIn("gh run download", workflow)
+        self.assertIn("candidate.json", workflow)
         self.assertIn("gh release download", workflow)
         self.assertIn("source_commit", workflow)
         self.assertNotIn("SHA256SUMS", workflow)
-        self.assertNotIn("sha256sum", workflow)
+        self.assertIn("sha256sum", workflow)
         self.assertIn("runtime-bundle.lock.json", workflow)
         self.assertIn("tools/publish_release.sh", workflow)
         self.assertIn("Publish public Runtime assets for SSH deployment", workflow)

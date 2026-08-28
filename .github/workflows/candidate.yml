@@ -1,0 +1,97 @@
+name: Prepare Desktop test candidate
+
+on:
+  repository_dispatch:
+    types: [publish-desktop]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop semantic version to stage for testing
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-candidate-${{ github.event.client_payload.version || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: Stage Desktop ${{ github.event.client_payload.version || inputs.version }} without a Release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Download and verify the immutable Desktop source assets
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          INPUT_VERSION: ${{ github.event.client_payload.version || inputs.version }}
+          INPUT_SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "AELOON_RELEASE_TOKEN is required." >&2; exit 1; }
+          version="$INPUT_VERSION"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 2
+          repository="AetherHeart-AI/aeloon-lite-ui"
+          tag="v$version"
+          source_commit="$(gh api "repos/$repository/commits/$tag" --jq .sha)"
+          [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$INPUT_SOURCE_COMMIT" && "$INPUT_SOURCE_COMMIT" != "$source_commit" ]]; then
+            echo "Dispatch source commit does not match $tag." >&2
+            exit 1
+          fi
+
+          release_json="$RUNNER_TEMP/desktop-source-release.json"
+          gh api "repos/$repository/releases/tags/$tag" > "$release_json"
+          expected=(
+            "aeloon-lite-$version-arm64.deb"
+            "aeloon-lite-$version-arm64.dmg"
+            "aeloon-lite-$version-arm64.rpm"
+            "aeloon-lite-$version-x86_64.deb"
+            "aeloon-lite-$version-x86_64.rpm"
+          )
+          mapfile -t actual < <(jq -r '.assets[].name' "$release_json" | sort)
+          mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
+          [[ "${actual[*]}" == "${wanted[*]}" ]] || {
+            echo "Desktop source Release $tag has an unexpected asset set." >&2
+            exit 1
+          }
+          jq -e '(.draft == false) and (.prerelease == false) and all(.assets[]; .digest | test("^sha256:[a-f0-9]{64}$"))' \
+            "$release_json" >/dev/null
+
+          candidate_dir="$RUNNER_TEMP/desktop-candidate"
+          mkdir -p "$candidate_dir"
+          gh release download "$tag" --repo "$repository" --pattern 'aeloon-lite-*' --dir "$candidate_dir"
+          while IFS=$'\t' read -r name digest; do
+            actual_digest="sha256:$(sha256sum "$candidate_dir/$name" | cut -d ' ' -f1)"
+            [[ "$actual_digest" == "$digest" ]] || {
+              echo "Candidate asset digest does not match the source Release: $name" >&2
+              exit 1
+            }
+          done < <(jq -r '.assets[] | [.name, .digest] | @tsv' "$release_json")
+
+          jq --arg version "$version" --arg repository "$repository" --arg tag "$tag" \
+            --arg commit "$source_commit" --arg run_id "$GITHUB_RUN_ID" \
+            '{
+              schemaVersion: 1,
+              product: "desktop",
+              version: $version,
+              source: {repository: $repository, tag: $tag, commit: $commit},
+              candidateRunId: $run_id,
+              assets: [.assets[] | {name, size, digest}]
+            }' "$release_json" > "$candidate_dir/candidate.json"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "candidate_dir=$candidate_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the downloadable test candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aeloon-lite-desktop-v${{ steps.candidate.outputs.version }}-candidate
+          path: ${{ steps.candidate.outputs.candidate_dir }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

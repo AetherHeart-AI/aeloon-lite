@@ -6,7 +6,8 @@ readonly DISTRIBUTION_REPOSITORY="AetherHeart-AI/aeloon-lite"
 usage() {
   cat <<'EOF'
 Usage: publish_release.sh --desktop-version VERSION --desktop-source-commit SHA
-       --runtime-version VERSION --runtime-source-commit SHA --asset-dir DIRECTORY
+       --runtime-version VERSION --runtime-source-commit SHA
+       --summary-zh TEXT --summary-en TEXT --asset-dir DIRECTORY
 EOF
 }
 
@@ -14,6 +15,8 @@ desktop_version=""
 desktop_source_commit=""
 runtime_version=""
 runtime_source_commit=""
+summary_zh=""
+summary_en=""
 asset_dir=""
 while (($#)); do
   case "$1" in
@@ -21,6 +24,8 @@ while (($#)); do
     --desktop-source-commit) desktop_source_commit=$2; shift 2 ;;
     --runtime-version) runtime_version=$2; shift 2 ;;
     --runtime-source-commit) runtime_source_commit=$2; shift 2 ;;
+    --summary-zh) summary_zh=$2; shift 2 ;;
+    --summary-en) summary_en=$2; shift 2 ;;
     --asset-dir) asset_dir=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -38,6 +43,8 @@ for commit in "$desktop_source_commit" "$runtime_source_commit"; do
 done
 [[ -d "$asset_dir" ]] || { echo "Asset directory does not exist: $asset_dir" >&2; exit 2; }
 [[ -n "${GH_TOKEN:-}" ]] || { echo "AELOON_RELEASE_TOKEN is required through GH_TOKEN." >&2; exit 1; }
+[[ -n "$summary_zh" ]] || { echo "The Chinese official-release summary is required." >&2; exit 2; }
+[[ -n "$summary_en" ]] || { echo "The English official-release summary is required." >&2; exit 2; }
 
 tag="v$desktop_version"
 expected=(
@@ -67,9 +74,81 @@ done < <(find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
 
 scratch="$(mktemp -d "${RUNNER_TEMP:-/tmp}/aeloon-publish.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
+
+stable_source_commit() {
+  local product=$1 source_line commit
+  source_line="$(sed -n 's/^# source=//p' "channels/$product/stable")"
+  commit=${source_line#*@}
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "Current $product stable metadata has no valid source commit." >&2
+    exit 1
+  }
+  printf '%s\n' "$commit"
+}
+
+collect_pull_requests() {
+  local repository=$1 base=$2 head=$3 output=$4
+  local comparison status commits pulls commit
+  if [[ "$base" == "$head" ]]; then
+    printf '%s\n' '- 无合并 PR / No merged PRs.' > "$output"
+    return
+  fi
+
+  comparison="$scratch/compare-${repository##*/}.json"
+  gh api --paginate --slurp "repos/$repository/compare/$base...$head?per_page=100" > "$comparison"
+  status="$(jq -r '.[0].status' "$comparison")"
+  [[ "$status" == ahead || "$status" == identical ]] || {
+    echo "$repository release range is not a forward comparison: $base...$head ($status)" >&2
+    exit 1
+  }
+  commits="$scratch/commits-${repository##*/}"
+  jq -r '[.[].commits[]?.sha] | unique[]' "$comparison" > "$commits"
+  pulls="$scratch/pulls-${repository##*/}.jsonl"
+  : > "$pulls"
+  while IFS= read -r commit; do
+    gh api -H 'Accept: application/vnd.github+json' \
+      "repos/$repository/commits/$commit/pulls" \
+      --jq '.[] | select(.merged_at != null and .base.ref == "main") | {number, title, html_url}' \
+      >> "$pulls"
+  done < "$commits"
+  if [[ ! -s "$pulls" ]]; then
+    printf '%s\n' '- 无合并 PR / No merged PRs.' > "$output"
+    return
+  fi
+  jq -sr --arg repository "$repository" \
+    'unique_by(.number) | sort_by(.number)[] | "- [\($repository)#\(.number)](\(.html_url)): \(.title)"' \
+    "$pulls" > "$output"
+}
+
+previous_desktop_commit="$(stable_source_commit desktop)"
+previous_runtime_commit="$(stable_source_commit runtime)"
+previous_desktop_version="$(sed -n 's/^# version=//p' channels/desktop/stable)"
+previous_release_tag="$(sed -n 's/^# release=//p' channels/desktop/stable)"
+if [[ -z "$previous_release_tag" ]]; then
+  previous_release_tag="v$previous_desktop_version"
+fi
+previous_distribution_commit="$(gh api "repos/$DISTRIBUTION_REPOSITORY/commits/$previous_release_tag" --jq .sha)"
+distribution_commit="$(git rev-parse HEAD)"
+for commit in "$previous_distribution_commit" "$distribution_commit"; do
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid distribution commit: $commit" >&2; exit 1; }
+done
+
+desktop_prs="$scratch/desktop-prs.md"
+runtime_prs="$scratch/runtime-prs.md"
+distribution_prs="$scratch/distribution-prs.md"
+collect_pull_requests AetherHeart-AI/aeloon-lite-ui "$previous_desktop_commit" "$desktop_source_commit" "$desktop_prs"
+collect_pull_requests AetherHeart-AI/aeloon-lite-runtime "$previous_runtime_commit" "$runtime_source_commit" "$runtime_prs"
+collect_pull_requests "$DISTRIBUTION_REPOSITORY" "$previous_distribution_commit" "$distribution_commit" "$distribution_prs"
+
 body="$scratch/release-notes.md"
-cat > "$body" <<EOF
+{
+  cat <<'EOF'
 ## 中文
+
+### 本次说明
+EOF
+  printf '%s\n' "$summary_zh"
+  cat <<EOF
 
 ### 安装
 
@@ -83,9 +162,29 @@ cat > "$body" <<EOF
 - Desktop: \`$desktop_version\`
 - Runtime: \`$runtime_version\`
 
-> 发布负责人需在发布后按 \`docs/releasing.md\` 补充自上个公开版本以来的主要 PR 与改动说明。
+### 自上个正式版以来的 PR
+
+#### Desktop
+EOF
+  cat "$desktop_prs"
+  cat <<'EOF'
+
+#### Runtime
+EOF
+  cat "$runtime_prs"
+  cat <<'EOF'
+
+#### 发行控制
+EOF
+  cat "$distribution_prs"
+  cat <<EOF
 
 ## English
+
+### Summary
+EOF
+  printf '%s\n' "$summary_en"
+  cat <<EOF
 
 ### Installation
 
@@ -99,8 +198,23 @@ cat > "$body" <<EOF
 - Desktop: \`$desktop_version\`
 - Runtime: \`$runtime_version\`
 
-> After publication, the release owner must add the major PRs and their changes since the previous public release, following \`docs/releasing.md\`.
+### Pull requests since the previous official release
+
+#### Desktop
 EOF
+  cat "$desktop_prs"
+  cat <<'EOF'
+
+#### Runtime
+EOF
+  cat "$runtime_prs"
+  cat <<'EOF'
+
+#### Distribution
+EOF
+  cat "$distribution_prs"
+  printf '\n'
+} > "$body"
 
 release_id="$(gh api "repos/$DISTRIBUTION_REPOSITORY/releases?per_page=100" \
   --jq "map(select(.tag_name == \"$tag\")) | first | .id // empty")"
@@ -126,6 +240,7 @@ verify_remote_assets() {
 }
 
 if [[ "$is_draft" == true ]]; then
+  gh release edit "$tag" --repo "$DISTRIBUTION_REPOSITORY" --notes-file "$body"
   mapfile -t existing_names < <(jq -r '.assets[].name' "$release_json")
   for name in "${existing_names[@]}"; do
     [[ -n "${expected_names[$name]+present}" ]] || {
@@ -215,7 +330,7 @@ if [[ -z "$pr" ]]; then
     --body "Publishes Desktop $desktop_version and Runtime $runtime_version together and updates both stable metadata files." >/dev/null
   pr="$(gh pr view "$branch" --repo "$DISTRIBUTION_REPOSITORY" --json number --jq .number)"
 fi
-gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash >/dev/null
+gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash --delete-branch >/dev/null
 
 deadline=$((SECONDS + 1100))
 while :; do
