@@ -37,6 +37,9 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
 公网/私网地址、CA 证书、配对、升级、状态检查与卸载的简明步骤参见
 [远程部署教程](docs/remote-deployment.zh-CN.md)。
 
+如需定义专用子代理，并在对话中提及代理或工作区文件，请参见
+[子代理与提及](docs/subagents-and-mentions.zh-CN.md)。
+
 ## 卸载与删除数据
 
 卸载 Desktop，但保留设置、凭据、缓存、Runtime 数据和外部项目：

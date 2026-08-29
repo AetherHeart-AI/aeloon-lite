@@ -38,6 +38,9 @@ automatically.
 For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
 status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
 
+To define specialist subagents and use agent or workspace-file mentions in a conversation, see
+[Subagents and mentions](docs/subagents-and-mentions.md).
+
 ## Uninstall and delete data
 
 Remove Desktop while preserving settings, credentials, cache, Runtime data, and external projects:
