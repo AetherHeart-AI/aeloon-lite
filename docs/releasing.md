@@ -25,14 +25,15 @@ Release 同时包含 5 个 Desktop 安装包，以及该 Desktop commit 锁定�
    Chinese and English summaries. Official publication accepts only an `all` candidate, promotes
    those exact Desktop files, resolves the Runtime pinned by the Desktop commit, and creates the
    public `vX.Y.Z` Release.
-7. The publisher automatically records every merged PR between the previous and current official
-   versions in UI, Runtime, and distribution, then updates both stable files through one protected PR.
+7. The publisher resolves merged PRs in the actual UI, Runtime, and distribution source ranges back
+   to completed public Issues, publishes the deduplicated public Issue list, then updates both stable
+   files through one protected PR.
 
 对应中文流程：先发布 Runtime 并合入 Desktop Runtime-lock PR；Desktop 构建完成后只产生
 可下载的 Actions 候选产物。手动运行候选流程时，可以只选择 macOS arm64、Linux arm64 或
 Linux x86_64；正式发版必须使用全平台 `all` 候选。候选版验收通过后，发布负责人手动选择
-该候选运行并填写中英文说明；正式流程才创建公开 Release、生成两个正式版本之间三仓的完整
-PR 清单，并更新 stable。
+该候选运行并填写中英文说明；正式流程才创建公开 Release、从三个实际 source range 生成已完成
+公开 Issue 清单，并更新 stable。
 
 ## Candidate isolation / 候选版隔离
 
@@ -54,12 +55,13 @@ Every official Desktop Release requires a curated Chinese and English summary be
 The workflow then generates the remaining notes. Each language section contains:
 
 - the bundled Desktop and Runtime versions;
-- every PR associated with commits between the previous and current official source identities,
-  grouped into UI, Runtime, and distribution, with its title and direct link.
+- every completed public Issue associated with merged PRs between the previous and current official
+  source identities, deduplicated across UI, Runtime, and distribution.
 
 每次正式 Desktop 发版前，发布负责人必须填写中英文说明，否则工作流直接拒绝发布。随后
-工作流自动补全 Desktop/Runtime 版本，以及 UI、Runtime、发行仓库从上个正式版到本次
-source identity 之间的全部关联 PR，包含标题和直达链接。候选版不生成这份说明。
+工作流自动补全 Desktop/Runtime 版本，并从 UI、Runtime、发行仓库的实际 source range 反查
+已完成的公开 Issue。条目只使用公开 Issue 标题与链接，不公开私有 PR 标题或链接。候选版不生成
+这份说明；发布后每个 Issue 会收到带幂等标记的 Release 链接评论。
 
 Recommended structure / 推荐结构：
 
@@ -67,14 +69,12 @@ Recommended structure / 推荐结构：
 ## 中文
 ### 本次说明
 ### 版本
-### 自上个正式版以来的 PR
-#### Desktop / Runtime / 发行控制
+### 已完成的公开 Issue
 
 ## English
 ### Summary
 ### Versions
-### Pull requests since the previous official release
-#### Desktop / Runtime / Distribution
+### Resolved public Issues
 ```
 
 ## Replay and recovery / 重放与恢复

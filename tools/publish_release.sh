@@ -43,6 +43,7 @@ for commit in "$desktop_source_commit" "$runtime_source_commit"; do
 done
 [[ -d "$asset_dir" ]] || { echo "Asset directory does not exist: $asset_dir" >&2; exit 2; }
 [[ -n "${GH_TOKEN:-}" ]] || { echo "AELOON_RELEASE_TOKEN is required through GH_TOKEN." >&2; exit 1; }
+[[ -n "${ISSUE_GH_TOKEN:-}" ]] || { echo "Aeloon Issue Automation token is required." >&2; exit 1; }
 [[ -n "$summary_zh" ]] || { echo "The Chinese official-release summary is required." >&2; exit 2; }
 [[ -n "$summary_en" ]] || { echo "The English official-release summary is required." >&2; exit 2; }
 
@@ -86,40 +87,6 @@ stable_source_commit() {
   printf '%s\n' "$commit"
 }
 
-collect_pull_requests() {
-  local repository=$1 base=$2 head=$3 output=$4
-  local comparison status commits pulls commit
-  if [[ "$base" == "$head" ]]; then
-    printf '%s\n' '- 无合并 PR / No merged PRs.' > "$output"
-    return
-  fi
-
-  comparison="$scratch/compare-${repository##*/}.json"
-  gh api --paginate --slurp "repos/$repository/compare/$base...$head?per_page=100" > "$comparison"
-  status="$(jq -r '.[0].status' "$comparison")"
-  [[ "$status" == ahead || "$status" == identical ]] || {
-    echo "$repository release range is not a forward comparison: $base...$head ($status)" >&2
-    exit 1
-  }
-  commits="$scratch/commits-${repository##*/}"
-  jq -r '[.[].commits[]?.sha] | unique[]' "$comparison" > "$commits"
-  pulls="$scratch/pulls-${repository##*/}.jsonl"
-  : > "$pulls"
-  while IFS= read -r commit; do
-    gh api -H 'Accept: application/vnd.github+json' \
-      "repos/$repository/commits/$commit/pulls" \
-      --jq '.[] | select(.merged_at != null and .base.ref == "main") | {number, title, html_url}' \
-      >> "$pulls"
-  done < "$commits"
-  if [[ ! -s "$pulls" ]]; then
-    printf '%s\n' '- 无合并 PR / No merged PRs.' > "$output"
-    return
-  fi
-  jq -sr --arg repository "$repository" \
-    'unique_by(.number) | sort_by(.number)[] | "- [\($repository)#\(.number)](\(.html_url)): \(.title)"' \
-    "$pulls" > "$output"
-}
-
 previous_desktop_commit="$(stable_source_commit desktop)"
 previous_runtime_commit="$(stable_source_commit runtime)"
 previous_desktop_version="$(sed -n 's/^# version=//p' channels/desktop/stable)"
@@ -133,12 +100,20 @@ for commit in "$previous_distribution_commit" "$distribution_commit"; do
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid distribution commit: $commit" >&2; exit 1; }
 done
 
-desktop_prs="$scratch/desktop-prs.md"
-runtime_prs="$scratch/runtime-prs.md"
-distribution_prs="$scratch/distribution-prs.md"
-collect_pull_requests AetherHeart-AI/aeloon-lite-ui "$previous_desktop_commit" "$desktop_source_commit" "$desktop_prs"
-collect_pull_requests AetherHeart-AI/aeloon-lite-runtime "$previous_runtime_commit" "$runtime_source_commit" "$runtime_prs"
-collect_pull_requests "$DISTRIBUTION_REPOSITORY" "$previous_distribution_commit" "$distribution_commit" "$distribution_prs"
+public_issues_json="$scratch/public-issues.json"
+ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py collect \
+  --range AetherHeart-AI/aeloon-lite-ui "$previous_desktop_commit" "$desktop_source_commit" \
+  --range AetherHeart-AI/aeloon-lite-runtime "$previous_runtime_commit" "$runtime_source_commit" \
+  --range "$DISTRIBUTION_REPOSITORY" "$previous_distribution_commit" "$distribution_commit" \
+  --output "$public_issues_json"
+public_issues="$scratch/public-issues.md"
+jq -r '
+  if length == 0 then
+    "- 暂无已完成的公开 Issue / No completed public Issues."
+  else
+    .[] | "- [#\(.number)](\(.url)): \(.title)"
+  end
+' "$public_issues_json" > "$public_issues"
 
 body="$scratch/release-notes.md"
 {
@@ -155,21 +130,9 @@ EOF
 - Desktop: \`$desktop_version\`
 - Runtime: \`$runtime_version\`
 
-### 自上个正式版以来的 PR
-
-#### Desktop
+### 已完成的公开 Issue
 EOF
-  cat "$desktop_prs"
-  cat <<'EOF'
-
-#### Runtime
-EOF
-  cat "$runtime_prs"
-  cat <<'EOF'
-
-#### 发行控制
-EOF
-  cat "$distribution_prs"
+  cat "$public_issues"
   cat <<EOF
 
 ## English
@@ -184,21 +147,9 @@ EOF
 - Desktop: \`$desktop_version\`
 - Runtime: \`$runtime_version\`
 
-### Pull requests since the previous official release
-
-#### Desktop
+### Resolved public Issues
 EOF
-  cat "$desktop_prs"
-  cat <<'EOF'
-
-#### Runtime
-EOF
-  cat "$runtime_prs"
-  cat <<'EOF'
-
-#### Distribution
-EOF
-  cat "$distribution_prs"
+  cat "$public_issues"
   printf '\n'
 } > "$body"
 
@@ -245,6 +196,10 @@ else
     exit 1
   }
 fi
+
+ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
+  --issues "$public_issues_json" --tag "$tag" \
+  --url "https://github.com/$DISTRIBUTION_REPOSITORY/releases/tag/$tag"
 
 desktop_channel="$scratch/desktop-stable"
 runtime_channel="$scratch/runtime-stable"
@@ -313,7 +268,13 @@ pr="$(gh pr list --repo "$DISTRIBUTION_REPOSITORY" --head "$branch" --state open
 if [[ -z "$pr" ]]; then
   gh pr create --repo "$DISTRIBUTION_REPOSITORY" --base main --head "$branch" \
     --title "release: set unified $tag stable" \
-    --body "Publishes Desktop $desktop_version and Runtime $runtime_version together and updates both stable metadata files." >/dev/null
+    --body "$(cat <<EOF
+Publishes Desktop $desktop_version and Runtime $runtime_version together and updates both stable metadata files.
+
+Release-Impact: internal
+Public-Issue: none
+EOF
+)" >/dev/null
   pr="$(gh pr view "$branch" --repo "$DISTRIBUTION_REPOSITORY" --json number --jq .number)"
 fi
 gh pr merge "$pr" --repo "$DISTRIBUTION_REPOSITORY" --auto --squash --delete-branch >/dev/null
