@@ -38,8 +38,9 @@ def validate_policy(
     closing_issues: Sequence[dict[str, Any]],
     parent_loader: Callable[[str, int], dict[str, Any] | None],
 ) -> None:
-    impacts = IMPACT_RE.findall(body or "")
-    public_fields = [value.strip() for value in PUBLIC_FIELD_RE.findall(body or "")]
+    visible_body = re.sub(r"<!--.*?-->", "", body or "", flags=re.DOTALL)
+    impacts = IMPACT_RE.findall(visible_body)
+    public_fields = [value.strip() for value in PUBLIC_FIELD_RE.findall(visible_body)]
     if len(impacts) != 1 or len(public_fields) != 1:
         raise PolicyError("PR body must contain exactly one Release-Impact and Public-Issue field.")
 

@@ -56,7 +56,13 @@ class PublicIssuePolicyTests(unittest.TestCase):
 
     def test_valid_internal_pr(self) -> None:
         POLICY.validate_policy(
-            "Release-Impact: internal\nPublic-Issue: none",
+            """Release-Impact: internal
+Public-Issue: none
+<!--
+Release-Impact: public
+Public-Issue: AetherHeart-AI/aeloon-lite#12
+Closes #52
+-->""",
             RUNTIME,
             [],
             lambda _repository, _number: None,
