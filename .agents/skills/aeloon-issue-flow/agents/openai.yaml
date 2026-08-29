@@ -1,7 +1,7 @@
 interface:
   display_name: "Aeloon Issue Flow"
-  short_description: "拆分并同步 Aeloon 三仓公开 Issue 工作项"
-  default_prompt: "Use $aeloon-issue-flow to inspect this Aeloon public Issue and propose a safe cross-repository split."
+  short_description: "自动完成 Aeloon 需求的 Issue、实现、PR 与合并"
+  default_prompt: "Use $aeloon-issue-flow to take this Aeloon product request from public Issue creation through implementation, CI, merge, cleanup, and local synchronization."
 
 policy:
   allow_implicit_invocation: true
