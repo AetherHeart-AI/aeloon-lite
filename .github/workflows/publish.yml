@@ -213,6 +213,7 @@ jobs:
         if: steps.source.outputs.product == 'desktop'
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
           DESKTOP_VERSION: ${{ steps.source.outputs.version }}
           DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
           RUNTIME_VERSION: ${{ steps.assets.outputs.runtime_version }}
