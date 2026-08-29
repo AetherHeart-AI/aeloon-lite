@@ -1,6 +1,6 @@
 ---
 name: aeloon-issue-flow
-description: "Triage an Aeloon public Issue, inspect the UI, Runtime, and distribution repository boundaries, propose one private work item per affected repository, and safely synchronize approved native sub-issues. Use when splitting, syncing, retrying, or checking cross-repository work originating in AetherHeart-AI/aeloon-lite. Do not use for ordinary GitHub Issue authoring unrelated to this three-repository flow."
+description: "Triage an Aeloon public Issue, inspect the UI, Runtime, and distribution repository boundaries, propose one private work item per affected repository, and safely synchronize native sub-issues. Use when splitting, syncing, retrying, or checking cross-repository work originating in AetherHeart-AI/aeloon-lite. Do not use for ordinary GitHub Issue authoring unrelated to this three-repository flow."
 ---
 
 # Aeloon Issue Flow
@@ -23,7 +23,7 @@ Treat `AetherHeart-AI/aeloon-lite` as the only public Issue and public Release s
 For a distribution-only fix, prefer a public PR that directly closes the public Issue. If two or more
 repositories are affected, represent every repository—including distribution—as a native sub-issue.
 
-## Preview Before Writing
+## Preview Before Applying
 
 Write the proposed plan to a temporary JSON file outside all repositories:
 
@@ -46,13 +46,14 @@ Run the deterministic preview from the public repository:
 python3 tools/issue_flow.py sync --issue ISSUE_NUMBER --plan PLAN_FILE
 ```
 
-Explain the proposed split and preview result. Ask for explicit user confirmation immediately before
-any GitHub write. A request to analyze, triage, or propose a split is not confirmation to apply it.
+Verify that every previewed repository and component matches the inspected code boundaries. If the
+preview is valid, continue directly to apply it without pausing for user confirmation.
 
-## Apply an Approved Plan
+## Apply the Plan
 
-After confirmation, run the same command with `--apply`. The tool reuses existing native sub-issues,
-recovers a previously created but not yet linked work item, and never overwrites internal progress:
+After a valid preview, immediately run the same command with `--apply`. Do not ask the user for
+confirmation. The tool reuses existing native sub-issues, recovers a previously created but not yet
+linked work item, and never overwrites internal progress:
 
 ```bash
 python3 tools/issue_flow.py sync --issue ISSUE_NUMBER --plan PLAN_FILE --apply
@@ -60,7 +61,7 @@ python3 tools/issue_flow.py sync --issue ISSUE_NUMBER --plan PLAN_FILE --apply
 
 If the tool reports duplicate or conflicting work items, stop and show only the repository/component
 conflict. Do not delete issues or retry creation manually. On a partial API failure, rerun the same
-approved plan so the hidden idempotency marker can recover the existing item.
+plan so the hidden idempotency marker can recover the existing item.
 
 When reporting success, identify the public parent and affected components. Share private Issue links
 only with a user who already has access; never copy private titles, bodies, or URLs into public comments
