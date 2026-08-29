@@ -6,14 +6,31 @@ request to at most one work item in each affected repository.
 
 ## Triage and split
 
-New Bug and Feature forms apply `status:needs-triage`. Use the project-level `aeloon-issue-flow`
-Skill to inspect the three code boundaries and preview a split. The Skill must receive explicit user
-confirmation before it runs `tools/issue_flow.py sync ... --apply`.
+For a direct product request, the project-level `aeloon-issue-flow` Skill first searches for an open
+matching public Issue and creates one when none exists. New Bug and Feature Issues apply
+`status:needs-triage`. The Skill inspects all three code boundaries, validates a deterministic split
+preview, and then runs `tools/issue_flow.py sync ... --apply` without requesting user confirmation.
 
-The approved split applies `status:in-progress` and one or more of `component:ui`,
+The applied split adds `status:in-progress` and one or more of `component:ui`,
 `component:runtime`, and `component:distribution`. A distribution-only change may be implemented by a
 public PR that directly closes the parent. When multiple repositories are affected, every repository
 must have its own sub-issue.
+
+## End-to-end execution
+
+Implementation uses the existing canonical distribution, Runtime, and UI checkouts. Feature code is
+never moved to a temporary worktree, clone, or source copy. Before editing, the affected checkout is
+fetched and the feature branch is based on current `origin/main` or newer while unrelated local changes
+are preserved.
+
+The Skill implements and verifies each work item in dependency order, creates correctly marked PRs,
+waits for required CI, and squash merges only green PRs. Runtime protocol dependencies are released
+and locked into UI before the consuming UI PR when necessary. A stable Desktop release remains a
+separate explicit request.
+
+After merging, the Skill deletes local and remote feature branches, fast-forwards every affected local
+`main` to `origin/main`, removes workflow metadata, and verifies clean synchronized checkouts. Public
+reconciliation then closes the parent only after each child was closed by its merged PR.
 
 ## Pull requests
 
