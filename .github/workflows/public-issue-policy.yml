@@ -1,0 +1,25 @@
+name: Public issue policy
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  public-issue-policy:
+    name: Public issue policy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/public-issue-policy
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          pr-number: ${{ github.event.pull_request.number }}

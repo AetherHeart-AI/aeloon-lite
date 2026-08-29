@@ -1,0 +1,22 @@
+name: Public issue policy
+description: Validate Aeloon PR release impact and native public-parent linkage
+inputs:
+  token:
+    description: Three-repository Aeloon Issue Automation token
+    required: true
+  repository:
+    description: Current owner/repository
+    required: true
+  pr-number:
+    description: Pull request number
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate release-impact declaration
+      shell: bash
+      env:
+        ISSUE_GH_TOKEN: ${{ inputs.token }}
+        POLICY_REPOSITORY: ${{ inputs.repository }}
+        POLICY_PR_NUMBER: ${{ inputs.pr-number }}
+      run: python3 "$GITHUB_ACTION_PATH/validate.py"

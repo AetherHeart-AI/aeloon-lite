@@ -44,6 +44,23 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Create three-repository Issue token
+        id: issue-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AELOON_ISSUE_APP_ID }}
+          private-key: ${{ secrets.AELOON_ISSUE_APP_PRIVATE_KEY }}
+          owner: AetherHeart-AI
+          repositories: |
+            aeloon-lite
+            aeloon-lite-ui
+            aeloon-lite-runtime
+
+      - name: Reconcile completed public Issues
+        env:
+          ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
+        run: python3 tools/issue_flow.py reconcile
+
       - name: Resolve source Release
         id: source
         shell: bash
@@ -107,6 +124,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
           DESKTOP_VERSION: ${{ steps.source.outputs.version }}
           DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
@@ -214,6 +232,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
+          ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
           VERSION: ${{ steps.source.outputs.version }}
           SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
         run: |
@@ -234,11 +253,65 @@ jobs:
           mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
           [[ "${actual[*]}" == "${wanted[*]}" ]]
 
+          issues_json="$RUNNER_TEMP/runtime-public-issues.json"
+          previous_tag=""
+          while IFS= read -r candidate; do
+            if [[ "$candidate" == "$tag" ]]; then
+              break
+            fi
+            previous_tag="$candidate"
+          done < <(
+            {
+              gh api 'repos/AetherHeart-AI/aeloon-lite/releases?per_page=100' \
+                --jq '.[] | .tag_name | select(startswith("runtime-v"))'
+              printf '%s\n' "$tag"
+            } | sort -Vu
+          )
+          if [[ -n "$previous_tag" ]]; then
+            previous_commit="$(gh api \
+              "repos/AetherHeart-AI/aeloon-lite-runtime/commits/$previous_tag" --jq .sha)"
+            ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py collect \
+              --range AetherHeart-AI/aeloon-lite-runtime "$previous_commit" "$SOURCE_COMMIT" \
+              --output "$issues_json"
+          else
+            printf '[]\n' > "$issues_json"
+          fi
+          issues_markdown="$RUNNER_TEMP/runtime-public-issues.md"
+          jq -r '
+            if length == 0 then
+              "- 暂无已完成的公开 Issue / No completed public Issues."
+            else
+              .[] | "- [#\(.number)](\(.url)): \(.title)"
+            end
+          ' "$issues_json" > "$issues_markdown"
+          notes="$RUNNER_TEMP/runtime-release-notes.md"
+          {
+            cat <<EOF
+          ## 中文
+
+          Runtime \`$VERSION\` 的公开 SSH 部署资产。
+
+          ### 已完成的公开 Issue
+          EOF
+            cat "$issues_markdown"
+            cat <<EOF
+
+          ## English
+
+          Public SSH deployment assets for Runtime \`$VERSION\`.
+
+          ### Resolved public Issues
+          EOF
+            cat "$issues_markdown"
+            printf '\n'
+          } > "$notes"
+
           if ! gh release view "$tag" --repo AetherHeart-AI/aeloon-lite >/dev/null 2>&1; then
             gh release create "$tag" --repo AetherHeart-AI/aeloon-lite --target main --draft \
               --title "Aeloon Runtime $tag" \
-              --notes "Public Runtime assets for SSH deployment from AetherHeart-AI/aeloon-lite-runtime@$SOURCE_COMMIT."
+              --notes-file "$notes"
           fi
+          gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --notes-file "$notes"
           if [[ "$(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite --json isDraft --jq .isDraft)" == true ]]; then
             gh release upload "$tag" --repo AetherHeart-AI/aeloon-lite --clobber "$asset_dir"/*
           fi
@@ -246,6 +319,9 @@ jobs:
             --json assets --jq '.assets[].name' | sort)
           [[ "${published[*]}" == "${wanted[*]}" ]]
           gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --latest=false
+          ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
+            --issues "$issues_json" --tag "$tag" \
+            --url "https://github.com/AetherHeart-AI/aeloon-lite/releases/tag/$tag"
 
       - name: Notify Desktop Runtime-lock workflow
         if: steps.source.outputs.product == 'runtime'

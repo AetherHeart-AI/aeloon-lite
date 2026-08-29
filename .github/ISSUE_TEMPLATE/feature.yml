@@ -1,0 +1,54 @@
+name: Feature request / 功能建议
+description: Propose a user-visible improvement / 提议用户可见的改进
+title: "[Feature]: "
+labels:
+  - enhancement
+  - status:needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. Do not include passwords, API keys, tokens, private URLs, or sensitive logs.
+
+        本仓库内容公开，请勿包含密码、API Key、Token、私有链接或敏感日志。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case / 问题或使用场景
+      description: Describe the user need rather than an internal implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome / 期望结果
+      description: What should users be able to do after this change?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 考虑过的替代方案
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Current Aeloon version / 当前 Aeloon 版本
+      placeholder: e.g. Desktop 0.1.0, Runtime 0.2.0, or not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: OS, architecture, installation method, or other relevant constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 补充信息
+      description: Redact secrets and sensitive paths before attaching screenshots or logs.
+    validations:
+      required: false

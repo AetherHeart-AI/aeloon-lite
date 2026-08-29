@@ -1,0 +1,63 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible user-visible problem / 报告可复现的用户问题
+title: "[Bug]: "
+labels:
+  - bug
+  - status:needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Aeloon. This repository is public. Do not paste passwords, API keys, tokens, private URLs, or sensitive logs.
+
+        感谢帮助改进 Aeloon。本仓库内容公开，请勿粘贴密码、API Key、Token、私有链接或敏感日志。
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem description / 问题描述
+      description: Briefly describe what went wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps / 复现步骤
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result / 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result / 实际结果
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Aeloon version / Aeloon 版本
+      placeholder: e.g. Desktop 0.1.0, Runtime 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: OS, architecture, installation method, and other relevant public-safe details.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 补充信息
+      description: Redact secrets and sensitive paths before attaching screenshots or logs.
+    validations:
+      required: false
