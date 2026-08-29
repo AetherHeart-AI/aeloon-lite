@@ -105,7 +105,29 @@ device already exists, upgrading or rolling back does not print a new pairing co
 If a certificate changes or a device token is revoked, use **Pair again** in Desktop with a newly
 generated server pairing code. The repair flow keeps the existing connection profile.
 
-## 6. Uninstall
+## 6. Synchronize Runtime settings
+
+Desktop treats its local Runtime as the single source of truth for portable configuration. Pairing a
+new remote, opening Desktop, reconnecting a remote, saving local settings, or detecting remote drift
+automatically copies the local snapshot to that remote. **Sync all remotes** applies it immediately
+to online devices; offline devices remain pending and are synchronized after they reconnect. A failed
+first sync does not remove the paired connection profile.
+
+The snapshot includes agent defaults, providers and their credentials, models and endpoints, proxy
+and header settings, skill/subagent/template/context switches, image processing, and web search/fetch
+configuration. Machine-specific state stays local to each Runtime: workspaces, data/resource
+directories, shell paths, plugin configuration, device profiles and tokens, projects, tasks, sessions,
+UI preferences, model display filters, and Aeloon Cloud login state or machine name are not copied.
+
+Credentials are exported only over the local Unix connection, remain in Electron main-process memory,
+and are sent only through verified TLS/WSS or an SSH tunnel. They are not exposed to the renderer,
+events, errors, or logs. Use Runtime 0.1.9 or later for secure settings synchronization. Older Runtime
+versions can still connect, but Desktop marks synchronization as requiring an upgrade.
+
+The workspace sidebar reports each device's actual connection state. Cached workspaces remain visible
+and selectable while a device is **Offline**; selecting one starts a normal reconnect attempt.
+
+## 7. Uninstall
 
 Remove the service and managed releases while preserving Runtime data and the workspace:
 
