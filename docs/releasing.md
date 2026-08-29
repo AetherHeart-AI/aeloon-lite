@@ -53,28 +53,25 @@ SHA-256；正式发布必须提供全平台候选运行 ID，并在提升前再�
 Every official Desktop Release requires a curated Chinese and English summary before it can start.
 The workflow then generates the remaining notes. Each language section contains:
 
-- the local Desktop and Remote Runtime installation commands;
 - the bundled Desktop and Runtime versions;
 - every PR associated with commits between the previous and current official source identities,
   grouped into UI, Runtime, and distribution, with its title and direct link.
 
 每次正式 Desktop 发版前，发布负责人必须填写中英文说明，否则工作流直接拒绝发布。随后
-工作流自动补全安装命令、Desktop/Runtime 版本，以及 UI、Runtime、发行仓库从上个正式版
-到本次 source identity 之间的全部关联 PR，包含标题和直达链接。候选版不生成这份说明。
+工作流自动补全 Desktop/Runtime 版本，以及 UI、Runtime、发行仓库从上个正式版到本次
+source identity 之间的全部关联 PR，包含标题和直达链接。候选版不生成这份说明。
 
 Recommended structure / 推荐结构：
 
 ```markdown
 ## 中文
 ### 本次说明
-### 安装
 ### 版本
 ### 自上个正式版以来的 PR
 #### Desktop / Runtime / 发行控制
 
 ## English
 ### Summary
-### Installation
 ### Versions
 ### Pull requests since the previous official release
 #### Desktop / Runtime / Distribution

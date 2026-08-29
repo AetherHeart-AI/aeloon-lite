@@ -150,13 +150,6 @@ EOF
   printf '%s\n' "$summary_zh"
   cat <<EOF
 
-### 安装
-
-- 本地使用（Desktop，已内置 Runtime）：
-  \`curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh\`
-- Remote 使用（Linux systemd 服务器）：
-  \`curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sudo sh\`
-
 ### 版本
 
 - Desktop: \`$desktop_version\`
@@ -185,13 +178,6 @@ EOF
 EOF
   printf '%s\n' "$summary_en"
   cat <<EOF
-
-### Installation
-
-- Local use (Desktop with bundled Runtime):
-  \`curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh\`
-- Remote use (Linux systemd server):
-  \`curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sudo sh\`
 
 ### Versions
 
