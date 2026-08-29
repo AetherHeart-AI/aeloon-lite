@@ -207,9 +207,11 @@ class IssueFlowTests(unittest.TestCase):
         client = Mock()
         client.get_issue.return_value = parent
         client.list_subissues.return_value = [child]
-        client.issue_events.return_value = [
-            {"id": 1, "event": "closed", "created_at": "2026-01-01", "commit_id": None}
-        ]
+        client.graphql.return_value = {
+            "repository": {
+                "issue": {"timelineItems": {"nodes": [{"closer": None}]}}
+            }
+        }
 
         result = reconcile(client, 12)
 
@@ -225,9 +227,26 @@ class IssueFlowTests(unittest.TestCase):
         client = Mock()
         client.get_issue.return_value = parent
         client.list_subissues.return_value = children
-        client.issue_events.return_value = [
-            {"id": 1, "event": "closed", "created_at": "2026-01-01", "commit_id": "a" * 40}
-        ]
+        client.graphql.side_effect = lambda _query, variables: {
+            "repository": {
+                "issue": {
+                    "timelineItems": {
+                        "nodes": [
+                            {
+                                "closer": {
+                                    "__typename": "PullRequest",
+                                    "merged": True,
+                                    "baseRefName": "main",
+                                    "repository": {
+                                        "nameWithOwner": f"{OWNER}/{variables['name']}"
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                }
+            }
+        }
 
         result = reconcile(client, 12)
 

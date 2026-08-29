@@ -350,14 +350,46 @@ def sync_issue(
     return {"mode": "applied", "parent": parent_number, "items": results}
 
 
-def _last_close_has_commit(client: GitHub, repository: str, number: int) -> bool:
-    closed_events = [
-        event for event in client.issue_events(repository, number) if event.get("event") == "closed"
-    ]
-    if not closed_events:
-        return False
-    last = max(closed_events, key=lambda event: (event.get("created_at", ""), event.get("id", 0)))
-    return bool(last.get("commit_id"))
+LATEST_CLOSE_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
+        nodes {
+          ... on ClosedEvent {
+            closer {
+              __typename
+              ... on PullRequest {
+                merged
+                baseRefName
+                repository { nameWithOwner }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _last_close_is_merged_pr(client: GitHub, repository: str, number: int) -> bool:
+    owner, name = repository.split("/", 1)
+    data = client.graphql(
+        LATEST_CLOSE_QUERY,
+        {"owner": owner, "name": name, "number": number},
+    )
+    issue = data["repository"]["issue"]
+    nodes = issue["timelineItems"]["nodes"] if issue else []
+    closer = nodes[-1].get("closer") if nodes else None
+    return bool(
+        closer
+        and closer.get("__typename") == "PullRequest"
+        and closer.get("merged") is True
+        and closer.get("baseRefName") == "main"
+        and closer.get("repository", {}).get("nameWithOwner") == repository
+    )
 
 
 def _reconcile_one(client: GitHub, parent: dict[str, Any]) -> dict[str, Any]:
@@ -372,12 +404,12 @@ def _reconcile_one(client: GitHub, parent: dict[str, Any]) -> dict[str, Any]:
             if component is None:
                 raise IssueFlowError("The public Issue has an unsupported sub-issue repository.")
             components.add(component)
-            complete = complete and subissue.get("state") == "closed" and _last_close_has_commit(
+            complete = complete and subissue.get("state") == "closed" and _last_close_is_merged_pr(
                 client, repository, subissue["number"]
             )
     else:
         components.add("distribution")
-        complete = parent.get("state") == "closed" and _last_close_has_commit(
+        complete = parent.get("state") == "closed" and _last_close_is_merged_pr(
             client, PUBLIC_REPOSITORY, parent_number
         )
 

@@ -39,7 +39,7 @@ Creating a PR establishes the relationship. GitHub closes the work item only whe
 ## Completion and Release notes
 
 Every 15 minutes, the public reconcile workflow checks native sub-issues. A child counts as complete
-only when its latest close event contains the merge commit that closed it; manual closure does not
+only when its latest close event identifies a merged PR targeting `main`; manual closure does not
 complete the parent. Once every child is complete, the workflow closes the public parent with reason
 `completed` and replaces `status:in-progress` with `status:implemented`.
 
