@@ -431,13 +431,12 @@ def reconcile(client: GitHub, issue_number: int | None = None) -> dict[str, Any]
     if issue_number is not None:
         issues = [client.get_issue(PUBLIC_REPOSITORY, issue_number)]
     else:
-        issues = [
-            issue
-            for issue in client.list_items(
-                f"repos/{PUBLIC_REPOSITORY}/issues?state=all&labels=status%3Ain-progress&per_page=100"
-            )
-            if "pull_request" not in issue
-        ]
+        candidates = client.list_items(
+            f"repos/{PUBLIC_REPOSITORY}/issues?state=all&labels=status%3Ain-progress&per_page=100"
+        ) + client.list_items(
+            f"repos/{PUBLIC_REPOSITORY}/issues?state=open&labels=status%3Aimplemented&per_page=100"
+        )
+        issues = [issue for issue in candidates if "pull_request" not in issue]
     results = [_reconcile_one(client, issue) for issue in issues]
     return {"checked": len(results), "results": results}
 
