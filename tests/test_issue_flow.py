@@ -258,6 +258,38 @@ class IssueFlowTests(unittest.TestCase):
         self.assertIn("component:ui", labels)
         self.assertIn("component:runtime", labels)
 
+    def test_reconcile_sweep_closes_a_reopened_implemented_parent(self) -> None:
+        parent = issue(PUBLIC_REPOSITORY, 12, labels=("bug", "status:implemented"))
+        child = issue(f"{OWNER}/aeloon-lite-ui", 41, state="closed")
+        client = Mock()
+        client.list_items.side_effect = [[], [parent]]
+        client.list_subissues.return_value = [child]
+        client.graphql.side_effect = lambda _query, variables: {
+            "repository": {
+                "issue": {
+                    "timelineItems": {
+                        "nodes": [
+                            {
+                                "closer": {
+                                    "__typename": "PullRequest",
+                                    "merged": True,
+                                    "baseRefName": "main",
+                                    "repository": {
+                                        "nameWithOwner": f"{OWNER}/{variables['name']}"
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        result = reconcile(client)
+
+        self.assertEqual(result["results"][0]["status"], "implemented")
+        self.assertEqual(client.update_issue.call_args_list[0].kwargs["state"], "closed")
+
     def test_collect_maps_private_closing_issue_to_public_parent_and_deduplicates(self) -> None:
         client = Mock()
         client.pages.side_effect = [
