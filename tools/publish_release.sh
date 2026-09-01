@@ -54,11 +54,13 @@ expected=(
   "aeloon-lite-$desktop_version-arm64.rpm"
   "aeloon-lite-$desktop_version-x86_64.deb"
   "aeloon-lite-$desktop_version-x86_64.rpm"
+  "aeloon-lite-$desktop_version-x64.exe"
   "aeloon-runtime-darwin-aarch64.tar.zst"
   "aeloon-runtime-linux-aarch64.tar.gz"
   "aeloon-runtime-linux-aarch64.tar.zst"
   "aeloon-runtime-linux-x86_64.tar.gz"
   "aeloon-runtime-linux-x86_64.tar.zst"
+  "aeloon-runtime-windows-x86_64.tar.zst"
 )
 declare -A expected_names=()
 for name in "${expected[@]}"; do

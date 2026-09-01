@@ -14,7 +14,7 @@ on:
         required: true
         default: all
         type: choice
-        options: [all, macos-arm64, linux-arm64, linux-x86_64]
+        options: [all, macos-arm64, linux-arm64, linux-x86_64, windows-x64]
 
 permissions:
   contents: read
@@ -60,6 +60,7 @@ jobs:
             "aeloon-lite-$version-arm64.rpm"
             "aeloon-lite-$version-x86_64.deb"
             "aeloon-lite-$version-x86_64.rpm"
+            "aeloon-lite-$version-x64.exe"
           )
           case "$platform" in
             all) selected=("${expected[@]}") ;;
@@ -70,6 +71,7 @@ jobs:
             linux-x86_64)
               selected=("aeloon-lite-$version-x86_64.deb" "aeloon-lite-$version-x86_64.rpm")
               ;;
+            windows-x64) selected=("aeloon-lite-$version-x64.exe") ;;
             *) echo "Invalid candidate platform: $platform" >&2; exit 2 ;;
           esac
           mapfile -t actual < <(jq -r '.assets[].name' "$release_json" | sort)

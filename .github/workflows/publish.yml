@@ -86,6 +86,7 @@ jobs:
                 aeloon-runtime-linux-aarch64.tar.zst
                 aeloon-runtime-linux-x86_64.tar.gz
                 aeloon-runtime-linux-x86_64.tar.zst
+                aeloon-runtime-windows-x86_64.tar.zst
               )
               ;;
             desktop)
@@ -97,6 +98,7 @@ jobs:
                 "aeloon-lite-$version-arm64.rpm"
                 "aeloon-lite-$version-x86_64.deb"
                 "aeloon-lite-$version-x86_64.rpm"
+                "aeloon-lite-$version-x64.exe"
               )
               ;;
             *) echo "Invalid product: $product" >&2; exit 2 ;;
@@ -161,6 +163,7 @@ jobs:
             "aeloon-lite-$DESKTOP_VERSION-arm64.rpm"
             "aeloon-lite-$DESKTOP_VERSION-x86_64.deb"
             "aeloon-lite-$DESKTOP_VERSION-x86_64.rpm"
+            "aeloon-lite-$DESKTOP_VERSION-x64.exe"
           )
           mapfile -t candidate_names < <(jq -r '.assets[].name' "$candidate_manifest" | sort)
           mapfile -t wanted_desktop < <(printf '%s\n' "${expected_desktop[@]}" | sort)
@@ -195,6 +198,7 @@ jobs:
             aeloon-runtime-linux-aarch64.tar.zst
             aeloon-runtime-linux-x86_64.tar.gz
             aeloon-runtime-linux-x86_64.tar.zst
+            aeloon-runtime-windows-x86_64.tar.zst
           )
           mapfile -t actual_runtime < <(gh release view "$runtime_tag" \
             --repo AetherHeart-AI/aeloon-lite-runtime --json assets --jq '.assets[].name' | sort)
@@ -249,6 +253,7 @@ jobs:
             aeloon-runtime-linux-aarch64.tar.zst
             aeloon-runtime-linux-x86_64.tar.gz
             aeloon-runtime-linux-x86_64.tar.zst
+            aeloon-runtime-windows-x86_64.tar.zst
           )
           mapfile -t actual < <(find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
