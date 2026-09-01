@@ -236,7 +236,8 @@ elif [ "$SYSTEM" = Linux ]; then
     esac
   fi
 else
-  echo "Unsupported operating system: $SYSTEM. Windows is not supported." >&2
+  echo "Unsupported operating system: $SYSTEM. On Windows, download the "\
+    "aeloon-lite-<version>-x64.exe installer from the Releases page." >&2
   exit 2
 fi
 

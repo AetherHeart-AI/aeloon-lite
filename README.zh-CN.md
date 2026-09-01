@@ -17,7 +17,9 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
 **覆盖**、**更新**或**跳过**；自动化场景可传入
 `--if-installed overwrite|update|skip`。
 
-支持平台：macOS 13+ 的 Apple Silicon Mac，以及 ARM64、x86_64 架构的 DEB/RPM Linux。
+支持平台：macOS 13+ 的 Apple Silicon Mac，ARM64、x86_64 架构的 DEB/RPM Linux，以及 x64 架构的
+Windows 10+。上面的 shell 安装脚本只覆盖 macOS 与 Linux；Windows 请从 Releases 页面下载
+`aeloon-lite-<版本>-x64.exe` 直接运行。
 
 ## Remote 使用
 

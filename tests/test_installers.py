@@ -447,9 +447,12 @@ esac
     def test_candidate_workflow_is_downloadable_but_cannot_publish(self) -> None:
         workflow = (ROOT / ".github/workflows/candidate.yml").read_text()
         self.assertIn("types: [publish-desktop]", workflow)
-        self.assertIn("options: [all, macos-arm64, linux-arm64, linux-x86_64]", workflow)
+        self.assertIn(
+            "options: [all, macos-arm64, linux-arm64, linux-x86_64, windows-x64]", workflow
+        )
         self.assertIn('case "$platform" in', workflow)
         self.assertIn('macos-arm64) selected=("aeloon-lite-$version-arm64.dmg")', workflow)
+        self.assertIn('windows-x64) selected=("aeloon-lite-$version-x64.exe")', workflow)
         self.assertIn("candidate-${{ steps.candidate.outputs.platform }}", workflow)
         self.assertIn("actions/upload-artifact", workflow)
         self.assertIn("retention-days: 7", workflow)
@@ -493,6 +496,22 @@ esac
         self.assertNotIn("Public Runtime assets for SSH deployment from", workflow)
         self.assertIn("event_type=runtime-release", workflow)
         self.assertIn("AELOON_RELEASE_TOKEN", workflow)
+
+    def test_windows_assets_travel_through_the_whole_release_contract(self) -> None:
+        candidate = (ROOT / ".github/workflows/candidate.yml").read_text()
+        publish_workflow = (ROOT / ".github/workflows/publish.yml").read_text()
+        publish_script = (ROOT / "tools/publish_release.sh").read_text()
+
+        # One Windows Desktop installer and one Windows Runtime archive join the
+        # fixed asset set every stage re-verifies.
+        self.assertIn('"aeloon-lite-$version-x64.exe"', candidate)
+        self.assertIn('"aeloon-lite-$version-x64.exe"', publish_workflow)
+        self.assertIn('"aeloon-lite-$DESKTOP_VERSION-x64.exe"', publish_workflow)
+        self.assertIn('"aeloon-lite-$desktop_version-x64.exe"', publish_script)
+        self.assertEqual(
+            publish_workflow.count("aeloon-runtime-windows-x86_64.tar.zst"), 3
+        )
+        self.assertIn('"aeloon-runtime-windows-x86_64.tar.zst"', publish_script)
 
     def test_public_issue_forms_and_reconcile_workflow_are_present(self) -> None:
         bug = (ROOT / ".github/ISSUE_TEMPLATE/bug.yml").read_text()

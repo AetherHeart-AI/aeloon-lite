@@ -17,7 +17,9 @@ On first launch, choose **Run on this computer**. No separate Runtime download o
 needed. Existing installations offer **overwrite**, **update**, or **skip**; automation can pass
 `--if-installed overwrite|update|skip`.
 
-Supported platforms are Apple Silicon Macs running macOS 13+, plus ARM64 and x86_64 DEB/RPM Linux.
+Supported platforms are Apple Silicon Macs running macOS 13+, ARM64 and x86_64 DEB/RPM Linux,
+and Windows 10+ on x64. The shell installer covers macOS and Linux; on Windows, download
+`aeloon-lite-<version>-x64.exe` from the Releases page and run it.
 
 ## Remote use
 

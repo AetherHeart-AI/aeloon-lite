@@ -1,24 +1,24 @@
 # Unified stable release operations / 统一稳定版发布流程
 
 Desktop and Runtime source repositories build independently. Public distribution is Desktop-versioned:
-one `vX.Y.Z` Release contains five Desktop installers and the five Runtime archives pinned by that
+one `vX.Y.Z` Release contains six Desktop installers and the six Runtime archives pinned by that
 Desktop commit. Both stable metadata files point to that same tag and contain no artifact hashes.
 
 Desktop 与 Runtime 源仓库独立构建。公开分发统一使用 Desktop 版本号：每个 `vX.Y.Z`
-Release 同时包含 5 个 Desktop 安装包，以及该 Desktop commit 锁定的 5 个 Runtime 包。
+Release 同时包含 6 个 Desktop 安装包，以及该 Desktop commit 锁定的 6 个 Runtime 包。
 两份 stable 元数据同时指向该 tag，不包含产物哈希。
 
 ## Candidate and release flow / 候选版与正式版流程
 
 1. Runtime `main` bumps its version and runs `runtime-release.yml`. The source Release contains the
-   fixed five Runtime assets and dispatches `publish-runtime`.
+   fixed six Runtime assets and dispatches `publish-runtime`.
 2. Distribution validates the Runtime source tag and asset names, then dispatches the Desktop
    Runtime-lock workflow. That PR pins Runtime version, source commit, URLs, and protocol types.
 3. After the lock PR merges, Desktop bumps its version and runs `desktop-release.yml`. Its immutable
-   source Release contains the fixed five Desktop assets and dispatches `publish-desktop`.
+   source Release contains the fixed six Desktop assets and dispatches `publish-desktop`.
 4. `candidate.yml` handles that dispatch. It verifies the source tag and digests, then uploads a
    seven-day, all-platform Actions artifact. A manual run may instead select only macOS arm64,
-   Linux arm64, or Linux x86_64 for focused testing. No candidate creates a tag or Release or can
+   Linux arm64, Linux x86_64, or Windows x64 for focused testing. No candidate creates a tag or Release or can
    update stable metadata.
 5. Testers download the candidate from the Actions run page and complete acceptance testing.
 6. The release owner manually runs `publish.yml` with the tested candidate run ID and required
@@ -30,8 +30,8 @@ Release 同时包含 5 个 Desktop 安装包，以及该 Desktop commit 锁定�
    files through one protected PR.
 
 对应中文流程：先发布 Runtime 并合入 Desktop Runtime-lock PR；Desktop 构建完成后只产生
-可下载的 Actions 候选产物。手动运行候选流程时，可以只选择 macOS arm64、Linux arm64 或
-Linux x86_64；正式发版必须使用全平台 `all` 候选。候选版验收通过后，发布负责人手动选择
+可下载的 Actions 候选产物。手动运行候选流程时，可以只选择 macOS arm64、Linux arm64、
+Linux x86_64 或 Windows x64；正式发版必须使用全平台 `all` 候选。候选版验收通过后，发布负责人手动选择
 该候选运行并填写中英文说明；正式流程才创建公开 Release、从三个实际 source range 生成已完成
 公开 Issue 清单，并更新 stable。
 
