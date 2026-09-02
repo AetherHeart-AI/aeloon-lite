@@ -58,32 +58,17 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -PassThru
-          $exited = $process.WaitForExit(180000)
-          Write-Host "setup pid=$($process.Id) exited=$exited"
-          if ($exited) { Write-Host "setup code=$($process.ExitCode)" } else { Stop-Process -Id $process.Id -Force }
-          # A silent NSIS install can outlive the process that started it.
-          $deadline = (Get-Date).AddSeconds(120)
-          do {
-            $installed = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
-              Where-Object { $_.DisplayName -like "aeloon-lite*" })
-            if ($installed.Count -gt 0) { break }
-            Start-Sleep -Seconds 2
-          } while ((Get-Date) -lt $deadline)
-          Get-Process | Where-Object { $_.Name -like "aeloon*" } |
-            Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
+          if (-not $process.WaitForExit(180000)) { throw "Setup did not finish in three minutes." }
+          if ($process.ExitCode -ne 0) { throw "Setup failed with code $($process.ExitCode)." }
+          $installed = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like "aeloon-lite*" })
           if ($installed.Count -eq 0) {
             Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
-              Where-Object { $_.DisplayName -like "*aeloon*" -or $_.PSChildName -like "*aeloon*" } |
-              Format-List PSPath, DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
-            foreach ($root in "$env:LOCALAPPDATA\Programs", $env:ProgramFiles, ${env:ProgramFiles(x86)}) {
-              Get-ChildItem -LiteralPath $root -Filter "*aeloon*" -ErrorAction SilentlyContinue |
-                Format-Table FullName -AutoSize | Out-String | Write-Host
-            }
+              Where-Object { $_.DisplayName -like "*aeloon*" } |
+              Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
             throw "Setup registered no installation."
           }
           $installed | Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
-          # The app may have been started on finish; it holds the installed files.
-          Get-Process aeloon-lite -ErrorAction SilentlyContinue | Stop-Process -Force
       - name: Detect the installation
         timeout-minutes: 6
         env:
