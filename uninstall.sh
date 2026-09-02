@@ -25,7 +25,11 @@ done
 SYSTEM=$(uname -s)
 case "$SYSTEM" in
   Darwin|Linux) ;;
-  *) echo "Unsupported operating system: $SYSTEM. Windows is not supported." >&2; exit 2 ;;
+  *)
+    echo "Unsupported operating system: $SYSTEM. On Windows, run this in PowerShell:" >&2
+    echo "  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes" >&2
+    exit 2
+    ;;
 esac
 
 confirm_uninstall() {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -31,6 +32,49 @@ class InstallerTests(unittest.TestCase):
                 self.assertNotIn("SHA-256", source)
                 self.assertNotIn("sha256sum", source)
                 self.assertNotIn("shasum", source)
+
+    def test_windows_scripts_keep_the_same_contract(self) -> None:
+        for name in ("install.ps1", "uninstall.ps1"):
+            source = (ROOT / name).read_text(encoding="utf-8")
+            self.assertNotIn("release-manifest.json", source)
+            self.assertNotIn("--channel", source)
+            self.assertNotIn("--version", source)
+            self.assertNotIn("sha256", source)
+            # `irm ... | iex` runs in the caller's session, where `exit` would
+            # close the user's whole PowerShell window.
+            self.assertIsNone(re.search(r"^\s*exit\b", source, re.MULTILINE))
+            if shutil.which("pwsh"):
+                self._assert_powershell_parses(ROOT / name)
+
+        install = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        for token in (
+            "-UseBasicParsing",
+            "Tls12",
+            "AELOON_CHANNEL_FILE",
+            "channels/desktop/stable",
+            "-x64.exe",
+        ):
+            self.assertIn(token, install)
+        uninstall = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+        self.assertIn("PurgeData", uninstall)
+        self.assertIn("dev.aeloon.desktop", uninstall)
+
+    def _assert_powershell_parses(self, script: Path) -> None:
+        result = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-Command",
+                "$errors = $null; "
+                "[System.Management.Automation.Language.Parser]::ParseFile("
+                f"'{script}', [ref]$null, [ref]$errors) > $null; "
+                "if ($errors) { $errors | ForEach-Object { $_.ToString() }; exit 1 }",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, f"{script.name}: {result.stdout}{result.stderr}")
 
     def test_desktop_stable_downloads_deb_from_unified_release(self) -> None:
         fixture = self._fixture("desktop", b"desktop-fixture")

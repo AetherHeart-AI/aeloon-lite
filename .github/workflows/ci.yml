@@ -27,3 +27,65 @@ jobs:
           set -euo pipefail
           bash -n tools/publish_release.sh
           python3 -m unittest discover -s tests -v
+
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      UNINSTALL_KEYS: >-
+        HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*;HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*;HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the stable installer
+        env:
+          AELOON_CHANNEL_FILE: channels/desktop/stable
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./install.ps1 -DownloadOnly "$env:RUNNER_TEMP\dl"
+          $version = (Get-Content channels/desktop/stable |
+            Where-Object { $_.StartsWith("# version=") }).Substring(10)
+          $installer = "$env:RUNNER_TEMP\dl\aeloon-lite-$version-x64.exe"
+          if (-not (Test-Path -LiteralPath $installer)) { throw "Missing $installer" }
+          "installer=$installer" >> $env:GITHUB_ENV
+      - name: Install silently
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = "Stop"
+          $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -PassThru
+          if (-not $process.WaitForExit(180000)) { throw "Setup did not finish in three minutes." }
+          if ($process.ExitCode -ne 0) { throw "Setup failed with code $($process.ExitCode)." }
+          $installed = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like "aeloon-lite*" })
+          if ($installed.Count -eq 0) {
+            Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "*aeloon*" } |
+              Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
+            throw "Setup registered no installation."
+          }
+          $installed | Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
+      - name: Detect the installation
+        timeout-minutes: 6
+        env:
+          AELOON_CHANNEL_FILE: channels/desktop/stable
+        run: |
+          $ErrorActionPreference = "Stop"
+          # install.ps1 reports through Write-Host, i.e. the information stream.
+          $output = ./install.ps1 -IfInstalled skip 6>&1 | Out-String
+          Write-Host $output
+          if ($output -notmatch "Keeping the installed aeloon-lite") {
+            throw "install.ps1 did not detect the installed aeloon-lite."
+          }
+      - name: Uninstall and purge
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./uninstall.ps1 -Yes -PurgeData
+          $remaining = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like "aeloon-lite*" })
+          if ($remaining.Count -ne 0) { throw "aeloon-lite is still registered." }
