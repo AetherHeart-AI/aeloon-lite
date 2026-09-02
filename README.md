@@ -13,13 +13,26 @@ Install Aeloon Desktop, which already contains the matching Runtime:
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh
 ```
 
+On Windows, run this in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1 | iex
+```
+
 On first launch, choose **Run on this computer**. No separate Runtime download or server setup is
 needed. Existing installations offer **overwrite**, **update**, or **skip**; automation can pass
-`--if-installed overwrite|update|skip`.
+`--if-installed overwrite|update|skip` (PowerShell: `-IfInstalled overwrite|update|skip`). To pass
+arguments to the PowerShell script, run it as a script block:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1))) -IfInstalled skip
+```
 
 Supported platforms are Apple Silicon Macs running macOS 13+, ARM64 and x86_64 DEB/RPM Linux,
-and Windows 10+ on x64. The shell installer covers macOS and Linux; on Windows, download
-`aeloon-lite-<version>-x64.exe` from the Releases page and run it.
+and Windows 10+ on x64. The shell installer covers macOS and Linux; the PowerShell installer
+covers Windows, where it downloads `aeloon-lite-<version>-x64.exe` and opens the setup wizard
+(`-Silent` installs without prompts). These internal builds are unsigned, so Windows SmartScreen
+may warn; choose **More info** > **Run anyway**.
 
 ## Remote use
 
@@ -57,6 +70,13 @@ Remove Desktop and its private data:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.sh \
   | sh -s -- --yes --purge-data
+```
+
+The same two steps in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
 External projects are never deleted.

@@ -13,13 +13,25 @@ Aeloon Desktop 与 Aeloon Runtime Server 的稳定安装入口。安装脚本始
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh
 ```
 
+Windows 请在 PowerShell 中运行：
+
+```powershell
+irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1 | iex
+```
+
 首次启动时选择**在本机运行**，无需单独下载 Runtime 或部署服务器。若已安装，可选择
 **覆盖**、**更新**或**跳过**；自动化场景可传入
-`--if-installed overwrite|update|skip`。
+`--if-installed overwrite|update|skip`（PowerShell 为 `-IfInstalled overwrite|update|skip`）。
+PowerShell 脚本需要传参时，用脚本块方式运行：
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1))) -IfInstalled skip
+```
 
 支持平台：macOS 13+ 的 Apple Silicon Mac，ARM64、x86_64 架构的 DEB/RPM Linux，以及 x64 架构的
-Windows 10+。上面的 shell 安装脚本只覆盖 macOS 与 Linux；Windows 请从 Releases 页面下载
-`aeloon-lite-<版本>-x64.exe` 直接运行。
+Windows 10+。shell 安装脚本覆盖 macOS 与 Linux；Windows 由 PowerShell 脚本覆盖，它会下载
+`aeloon-lite-<版本>-x64.exe` 并打开安装向导（`-Silent` 可静默安装）。内部构建未签名，
+Windows SmartScreen 可能拦截，请选择**更多信息** > **仍要运行**。
 
 ## Remote 使用
 
@@ -56,6 +68,13 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.sh \
   | sh -s -- --yes --purge-data
+```
+
+以上两步在 PowerShell 中的写法：
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
 外部项目始终不会被删除。
