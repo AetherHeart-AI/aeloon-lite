@@ -55,8 +55,18 @@ jobs:
           AELOON_CHANNEL_FILE: channels/desktop/stable
         run: |
           $ErrorActionPreference = "Stop"
-          $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -Wait -PassThru
+          $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -PassThru
+          if (-not $process.WaitForExit(180000)) {
+            Get-Process | Where-Object { $_.Name -like "aeloon*" } |
+              Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
+            Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" |
+              Where-Object { $_.DisplayName -eq "aeloon-lite" } |
+              Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
+            throw "Setup did not finish within three minutes."
+          }
           if ($process.ExitCode -ne 0) { throw "Setup failed with code $($process.ExitCode)." }
+          # The installer starts the app when it finishes; it holds the files.
+          Get-Process aeloon-lite -ErrorAction SilentlyContinue | Stop-Process -Force
           # install.ps1 reports through Write-Host, i.e. the information stream.
           $output = ./install.ps1 -IfInstalled skip 6>&1 | Out-String
           Write-Host $output

@@ -53,7 +53,8 @@ function Uninstall-AeloonDesktop {
     $command = $installed.UninstallString
     if (-not $command) { throw "The installed aeloon-lite has no uninstall command." }
     $uninstaller = $command.Trim('"')
-    Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait
+    $process = Start-Process -FilePath $uninstaller -ArgumentList "/S" -PassThru
+    $process.WaitForExit()
     # The NSIS uninstaller copies itself into TEMP and re-executes, so the
     # process we waited on exits before the registry entry disappears.
     $deadline = (Get-Date).AddSeconds(60)

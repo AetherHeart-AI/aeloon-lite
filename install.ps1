@@ -167,10 +167,12 @@ function Install-AeloonDesktop {
   Write-Host ("This internal build is not signed; Windows SmartScreen may warn. " +
     "Choose 'More info' > 'Run anyway'.")
   if ($Silent) {
-    $process = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+    $process = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru
   } else {
-    $process = Start-Process -FilePath $installer -Wait -PassThru
+    $process = Start-Process -FilePath $installer -PassThru
   }
+  # -Wait would also wait on the app the installer launches when it finishes.
+  $process.WaitForExit()
   if ($process.ExitCode -ne 0) {
     throw "The aeloon-lite installer failed with code $($process.ExitCode)."
   }
