@@ -22,7 +22,8 @@ function Get-MetadataValue {
   return $matched[0].Substring($prefix.Length)
 }
 
-# electron-builder's NSIS package writes DisplayName from productName, and a
+# An assisted electron-builder installer writes "<productName> <version>" as
+# the DisplayName, a one-click one writes the bare product name, and a
 # per-user install lands in HKCU instead of HKLM.
 function Get-InstalledDesktop {
   $roots = @(
@@ -32,7 +33,10 @@ function Get-InstalledDesktop {
   )
   foreach ($root in $roots) {
     foreach ($entry in @(Get-ItemProperty -Path $root -ErrorAction SilentlyContinue)) {
-      if ($entry.DisplayName -eq "aeloon-lite") { return $entry }
+      $name = $entry.DisplayName
+      if ($name -eq "aeloon-lite" -or $name -eq "aeloon-lite $($entry.DisplayVersion)") {
+        return $entry
+      }
     }
   }
   return $null

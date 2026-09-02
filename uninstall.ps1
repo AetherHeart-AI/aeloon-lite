@@ -9,7 +9,8 @@ param(
   [switch]$Yes
 )
 
-# electron-builder's NSIS package writes DisplayName from productName, and a
+# An assisted electron-builder installer writes "<productName> <version>" as
+# the DisplayName, a one-click one writes the bare product name, and a
 # per-user install lands in HKCU instead of HKLM.
 function Get-InstalledDesktop {
   $roots = @(
@@ -19,7 +20,10 @@ function Get-InstalledDesktop {
   )
   foreach ($root in $roots) {
     foreach ($entry in @(Get-ItemProperty -Path $root -ErrorAction SilentlyContinue)) {
-      if ($entry.DisplayName -eq "aeloon-lite") { return $entry }
+      $name = $entry.DisplayName
+      if ($name -eq "aeloon-lite" -or $name -eq "aeloon-lite $($entry.DisplayVersion)") {
+        return $entry
+      }
     }
   }
   return $null
@@ -52,8 +56,15 @@ function Uninstall-AeloonDesktop {
   if ($installed) {
     $command = $installed.UninstallString
     if (-not $command) { throw "The installed aeloon-lite has no uninstall command." }
-    $uninstaller = $command.Trim('"')
-    $process = Start-Process -FilePath $uninstaller -ArgumentList "/S" -PassThru
+    # A per-user install records `"<path>" /currentuser`; keep that argument.
+    $arguments = @("/S")
+    if ($command -match '^\s*"([^"]+)"\s*(.*)$') {
+      $uninstaller = $Matches[1]
+      if ($Matches[2].Trim()) { $arguments += $Matches[2].Trim() }
+    } else {
+      $uninstaller = $command.Trim()
+    }
+    $process = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru
     $process.WaitForExit()
     # The NSIS uninstaller copies itself into TEMP and re-executes, so the
     # process we waited on exits before the registry entry disappears.

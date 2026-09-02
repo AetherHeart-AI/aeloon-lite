@@ -65,7 +65,7 @@ jobs:
           $deadline = (Get-Date).AddSeconds(120)
           do {
             $installed = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
-              Where-Object { $_.DisplayName -eq "aeloon-lite" })
+              Where-Object { $_.DisplayName -like "aeloon-lite*" })
             if ($installed.Count -gt 0) { break }
             Start-Sleep -Seconds 2
           } while ((Get-Date) -lt $deadline)
@@ -102,5 +102,5 @@ jobs:
           $ErrorActionPreference = "Stop"
           ./uninstall.ps1 -Yes -PurgeData
           $remaining = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
-            Where-Object { $_.DisplayName -eq "aeloon-lite" })
+            Where-Object { $_.DisplayName -like "aeloon-lite*" })
           if ($remaining.Count -ne 0) { throw "aeloon-lite is still registered." }
