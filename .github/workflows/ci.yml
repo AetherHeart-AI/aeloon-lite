@@ -71,7 +71,16 @@ jobs:
           } while ((Get-Date) -lt $deadline)
           Get-Process | Where-Object { $_.Name -like "aeloon*" } |
             Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
-          if ($installed.Count -eq 0) { throw "Setup registered no installation." }
+          if ($installed.Count -eq 0) {
+            Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "*aeloon*" -or $_.PSChildName -like "*aeloon*" } |
+              Format-List PSPath, DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
+            foreach ($root in "$env:LOCALAPPDATA\Programs", $env:ProgramFiles, ${env:ProgramFiles(x86)}) {
+              Get-ChildItem -LiteralPath $root -Filter "*aeloon*" -ErrorAction SilentlyContinue |
+                Format-Table FullName -AutoSize | Out-String | Write-Host
+            }
+            throw "Setup registered no installation."
+          }
           $installed | Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
           # The app may have been started on finish; it holds the installed files.
           Get-Process aeloon-lite -ErrorAction SilentlyContinue | Stop-Process -Force
