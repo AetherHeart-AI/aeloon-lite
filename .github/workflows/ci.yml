@@ -35,6 +35,9 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      UNINSTALL_KEYS: >-
+        HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*;HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*;HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,23 +53,34 @@ jobs:
           $installer = "$env:RUNNER_TEMP\dl\aeloon-lite-$version-x64.exe"
           if (-not (Test-Path -LiteralPath $installer)) { throw "Missing $installer" }
           "installer=$installer" >> $env:GITHUB_ENV
-      - name: Install silently and detect the installation
+      - name: Install silently
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = "Stop"
+          $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -PassThru
+          $exited = $process.WaitForExit(180000)
+          Write-Host "setup pid=$($process.Id) exited=$exited"
+          if ($exited) { Write-Host "setup code=$($process.ExitCode)" } else { Stop-Process -Id $process.Id -Force }
+          # A silent NSIS install can outlive the process that started it.
+          $deadline = (Get-Date).AddSeconds(120)
+          do {
+            $installed = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -eq "aeloon-lite" })
+            if ($installed.Count -gt 0) { break }
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $deadline)
+          Get-Process | Where-Object { $_.Name -like "aeloon*" } |
+            Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
+          if ($installed.Count -eq 0) { throw "Setup registered no installation." }
+          $installed | Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
+          # The app may have been started on finish; it holds the installed files.
+          Get-Process aeloon-lite -ErrorAction SilentlyContinue | Stop-Process -Force
+      - name: Detect the installation
+        timeout-minutes: 6
         env:
           AELOON_CHANNEL_FILE: channels/desktop/stable
         run: |
           $ErrorActionPreference = "Stop"
-          $process = Start-Process -FilePath $env:installer -ArgumentList "/S" -PassThru
-          if (-not $process.WaitForExit(180000)) {
-            Get-Process | Where-Object { $_.Name -like "aeloon*" } |
-              Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
-            Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" |
-              Where-Object { $_.DisplayName -eq "aeloon-lite" } |
-              Format-List DisplayName, DisplayVersion, UninstallString | Out-String | Write-Host
-            throw "Setup did not finish within three minutes."
-          }
-          if ($process.ExitCode -ne 0) { throw "Setup failed with code $($process.ExitCode)." }
-          # The installer starts the app when it finishes; it holds the files.
-          Get-Process aeloon-lite -ErrorAction SilentlyContinue | Stop-Process -Force
           # install.ps1 reports through Write-Host, i.e. the information stream.
           $output = ./install.ps1 -IfInstalled skip 6>&1 | Out-String
           Write-Host $output
@@ -74,14 +88,10 @@ jobs:
             throw "install.ps1 did not detect the installed aeloon-lite."
           }
       - name: Uninstall and purge
+        timeout-minutes: 6
         run: |
           $ErrorActionPreference = "Stop"
           ./uninstall.ps1 -Yes -PurgeData
-          $roots = @(
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-            "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-          )
-          $remaining = @(Get-ItemProperty -Path $roots -ErrorAction SilentlyContinue |
+          $remaining = @(Get-ItemProperty -Path $env:UNINSTALL_KEYS.Split(";") -ErrorAction SilentlyContinue |
             Where-Object { $_.DisplayName -eq "aeloon-lite" })
           if ($remaining.Count -ne 0) { throw "aeloon-lite is still registered." }
