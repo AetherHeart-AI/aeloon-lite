@@ -134,7 +134,7 @@ sudo aeloon-runtime-server tenant purge alice --yes  # 删除容器、卷和状�
 `sudo systemctl restart aeloon-gateway` 即可。重复执行 `tenant init` 会沿用已有证书，已配对
 的设备不受影响。
 
-每个 Runtime 各自配置 Provider 与密钥，设置同步不会覆盖它们（见下一节）。可以用
+每台 Runtime 各自保存自己的设置、Provider 与密钥（见下一节）。可以用
 `tenant add --config-template config.json` 预置：这是一份 Runtime 的 `config.json`，其中的
 Provider id 需要与团队默认模型所引用的一致。各租户共用主机内核，且在容器内使用相同的
 uid，因此这套方案适合同一个团队内部使用，不适合互不信任的多方共用一台机器。
@@ -143,25 +143,20 @@ uid，因此这套方案适合同一个团队内部使用，不适合互不信�
 `tenant pair <slug>`（端点变了，所有人需要重新配对）。方便时用 `tenant remove` 加
 `tenant add` 重建容器，让它们不再各自发布公网端口，并在安全组里关掉那些端口。
 
-## 7. 同步 Runtime 设置
+## 7. 每台 Runtime 各自保存设置
 
-Desktop 将本机 Runtime 作为可移植配置的唯一真源。添加远端、启动 Desktop、远端重连、
-保存本地设置或检测到远端配置漂移时，都会自动把本地快照覆盖到该远端。点击**同步全部远端**
-会立即处理在线设备；离线设备保持待同步，并在重连后自动补同步。首次同步失败不会删除已经
-配对的连接档案。
+设置属于 Runtime，不属于 Desktop。设置面板读写的是你当前正在使用的那台设备，标题里会写明
+是哪一台；设备之间不会复制任何内容。要配置另一台设备，先在侧栏切换过去。
 
-同步范围包括 Agent 默认设置、技能/子代理/模板/上下文开关、图片处理以及 Web Search/Fetch
-配置。Provider 及其密钥、模型、端点、代理与 Header，以及 Web Search 的 API key 属于每台
-Runtime 自己：比 0.1.23 更新的 Runtime 收到快照时不会改动它们，因此需要在每台 Runtime 上
-各自配置（或用 `--config-template` 预置租户），并让团队统一的默认模型引用每台 Runtime 上都
-存在的 Provider id。机器相关的状态同样保留在本地：工作区、数据与资源目录、shell 路径、
-Plugin 配置、设备档案和 token、项目、任务、会话、UI 偏好、模型显示过滤，以及 Aeloon Cloud
-登录状态和机器名称均不会被覆盖。
+按设备各自保存的内容：Provider 及其密钥、端点、模型与 Header；模型目录和默认模型；Agent
+默认设置；技能、子代理、提示模板与上下文文件开关；Web Search 与 Fetch（含 Search 的 API
+key）；图片处理；shell 路径；以及 Aeloon Cloud 登录。
 
-快照中的密钥只能通过本机 Unix 连接导出，只短暂存在于 Electron 主进程内存，并且仅通过已
-验证的 TLS/WSS 或 SSH 隧道发送；Renderer、事件、错误和日志都不会接触明文。安全同步需要
-Runtime 0.1.9 或更高版本。旧版 Runtime 仍可连接，但 Desktop 会将同步状态标记为需要升级；
-0.1.23 及更早的 Runtime 仍会用快照替换自己的 Provider。
+因此新配对的 Runtime 从它自己的默认值开始：没有 Provider，也没有登录云账号。团队主机上的
+租户可以用 `tenant add --config-template config.json` 预置（见上一节）。
+
+只有该设备处于连接状态时才能读写它的设置：当前设备离线或正在重连时，面板会显示连接错误并
+提供重试，而不是展示另一台设备的值。
 
 工作区侧栏展示每台设备的真实连接状态。设备**离线**时，缓存工作区仍会显示且可以点击；
 点击后会正常尝试重新连接。

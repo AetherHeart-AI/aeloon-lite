@@ -137,8 +137,8 @@ sudo aeloon-runtime-server tenant purge alice --yes  # deletes the container, vo
 `sudo systemctl restart aeloon-gateway`. Rerunning `tenant init` keeps the certificate, so
 existing pairings stay valid.
 
-Every Runtime configures its own providers and keys, and settings sync never overwrites them (see
-the next section). Seed a tenant with `tenant add --config-template config.json`, a Runtime
+Every Runtime keeps its own settings, providers, and keys (see the next section). Seed a tenant
+with `tenant add --config-template config.json`, a Runtime
 `config.json` whose provider ids match the team's default model. Tenants share the host kernel and
 run as the same uid inside their containers, so this suits one team, not mutually distrusting
 parties.
@@ -148,28 +148,23 @@ for each tenant (its endpoint changed, so everyone pairs again). Recreate contai
 `tenant remove` and `tenant add` when convenient so they stop publishing their own public ports,
 and close those ports in the security group.
 
-## 7. Synchronize Runtime settings
+## 7. Each Runtime keeps its own settings
 
-Desktop treats its local Runtime as the single source of truth for portable configuration. Pairing a
-new remote, opening Desktop, reconnecting a remote, saving local settings, or detecting remote drift
-automatically copies the local snapshot to that remote. **Sync all remotes** applies it immediately
-to online devices; offline devices remain pending and are synchronized after they reconnect. A failed
-first sync does not remove the paired connection profile.
+Settings belong to the Runtime, not to Desktop. The Settings panel reads and writes the device you
+are currently using — its heading names that device — and nothing is copied between devices. Switch
+devices in the sidebar to configure another one.
 
-The snapshot includes agent defaults, skill/subagent/template/context switches, image processing,
-and web search/fetch configuration. Providers, their credentials, models, endpoints, proxies, and
-headers, together with the web search API key, belong to each Runtime: a Runtime newer than 0.1.23
-never changes them when a snapshot arrives, so configure them on every Runtime (or seed a tenant with
-`--config-template`), and make the team-wide default model refer to a provider id that exists on each
-one. Machine-specific state also stays local: workspaces, data/resource directories, shell paths,
-plugin configuration, device profiles and tokens, projects, tasks, sessions, UI preferences, model
-display filters, and Aeloon Cloud login state or machine name are not copied.
+Per device: providers, their credentials, endpoints, models and headers; the model catalog and the
+default model; agent defaults; skills, subagents, prompt templates and context files; web search and
+fetch, including the search API key; image processing; the shell path; and the Aeloon Cloud login.
 
-Credentials in the snapshot are exported only over the local Unix connection, remain in Electron
-main-process memory, and are sent only through verified TLS/WSS or an SSH tunnel. They are not
-exposed to the renderer, events, errors, or logs. Use Runtime 0.1.9 or later for secure settings
-synchronization. Older Runtime versions can still connect, but Desktop marks synchronization as
-requiring an upgrade; Runtime 0.1.23 and earlier still replace their providers with the snapshot.
+A newly paired Runtime therefore starts from its own defaults, with no providers and no cloud
+account. Seed a team host's tenants with `tenant add --config-template config.json` (see the
+previous section).
+
+Settings are readable and writable only while that device is connected: when the active device is
+offline or reconnecting, the panel reports the connection error and offers a retry instead of
+showing another device's values.
 
 The workspace sidebar reports each device's actual connection state. Cached workspaces remain visible
 and selectable while a device is **Offline**; selecting one starts a normal reconnect attempt.
