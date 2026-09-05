@@ -148,6 +148,85 @@ for each tenant (its endpoint changed, so everyone pairs again). Recreate contai
 `tenant remove` and `tenant add` when convenient so they stop publishing their own public ports,
 and close those ports in the security group.
 
+### Groups and the Hub
+
+Upgrade the host Runtime and rerun `tenant init` with the existing public host and port. This
+preserves the certificate and tenants, adds Hub settings to `team.json`, and refreshes the gateway
+unit's writable state directory. The gateway now serves `/hub` on the same TLS port; Desktop derives
+that path and authenticates with the selected tenant's existing device token. Local Desktop profiles
+hide collaboration. Group containers are not directly reachable through the gateway.
+
+```bash
+# The template contains model/provider settings for group execution; keep it private (0600).
+aeloon-runtime-server tenant init --host example.com --port 7420 \
+  --hub-port 42000 --group-config-template /root/group-config.json
+aeloon-runtime-server group add design --owner alice --member bob --title 'Design team'
+aeloon-runtime-server group list --json
+aeloon-runtime-server group members design add carol
+```
+
+Hub needs root and a local Docker daemon: it verifies devices directly from each user tenant's
+Docker data volume. Rootless or remote Docker is not supported. User identity is the tenant slug;
+`hub` is reserved. A group slug shares the same namespace as user tenants. Members can configure
+Agents; only the owner can add/remove members. Any user can create a group through Desktop when the
+host's group config template is configured.
+
+For a CLI session, claim a normal tenant pairing code once, then use the saved credential:
+
+```bash
+aeloon-runtime hub login --pairing 'AELOON1-…'
+aeloon-runtime hub conversations
+aeloon-runtime hub agents design add --file writer.md
+aeloon-runtime hub send design 'Draft a proposal' --mention agent:writer
+aeloon-runtime hub tail design --follow --deltas
+aeloon-runtime hub handoff create --from-conversation design --select 1-3 --no-files
+aeloon-runtime hub forward ASSET_ID --to dm:alice:bob
+aeloon-runtime hub card attach ASSET_ID --thread THREAD_ID --text 'Review this context'
+aeloon-runtime hub handoff revoke ASSET_ID
+```
+
+Create a DM first with `hub dm bob`. Private snapshots use `handoff create --from-thread THREAD_ID`;
+`--select` counts private turns from 1, or shared-message sequence numbers. `--file` selects file IDs
+(for private artifacts, their paths); `--no-files` omits files. Only explicit mention blocks run
+Agents; text that happens to contain an @ and mentions frozen inside cards do not. Each Agent has its
+own project directory and thread. Files and artifacts cross environments only through messages.
+
+Host `team.json` defaults:
+
+| Field | Default | Meaning |
+|---|---:|---|
+| `hub_port` | 42000 | Loopback listener; cannot overlap gateway or tenant ports 41000–41999 |
+| `hub_idle_stop_s` | 1800 | Stop idle group containers; zero disables idle stopping |
+| `hub_file_quota_bytes` | 1073741824 | Per-user total logical uploaded bytes, including artifacts and retained snapshots |
+| `group_config_template` | null | Required model configuration for new groups |
+
+Each file is limited to 25 MiB, message pages to 200. Equal file contents share one immutable blob,
+but each uploaded reference counts toward the owner's quota. Set a positive quota appropriate to disk
+capacity; existing files remain readable when reducing the limit. Restart the gateway after changing
+Hub settings. Conversations and cards remain readable while group containers are stopped. The next
+Agent mention starts the container. Failed/cancelled runs do not advance the Agent's message pointer;
+a Hub restart marks interrupted runs failed so a new mention can retry their context.
+
+`group remove GROUP` retains volumes and Hub history. `group purge GROUP --yes` permanently removes
+the container, volumes and shared conversation; cancel queued/running runs first. Garbage collection
+removes unreferenced blobs while preserving files referenced by frozen assets. Snapshot revocation
+blocks future reads by recipients, but cannot erase copies already downloaded or consumed by an Agent.
+Back up the Hub SQLite database using SQLite's backup API and copy `hub/files/`, together with tenant
+state and volumes; do not copy a live WAL database file alone.
+
+```bash
+journalctl -u aeloon-gateway -n 100 --no-pager
+aeloon-runtime-server group status design
+aeloon-runtime-server group logs design
+aeloon-runtime hub runs design
+aeloon-runtime hub run cancel RUN_ID
+```
+
+If Hub is absent, check host Runtime version, the gateway unit's `ReadWritePaths`, loopback port
+availability and local Docker access. `not_a_member` means current membership does not grant access;
+`asset_revoked` means the owner revoked sharing; `container_unavailable` means the group's execution
+environment is missing or cannot start. For a disconnected tail, resume with `--after LAST_SEQ`.
+
 ## 7. Each Runtime keeps its own settings
 
 Settings belong to the Runtime, not to Desktop. The Settings panel reads and writes the device you
