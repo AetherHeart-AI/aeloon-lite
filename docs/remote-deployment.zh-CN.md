@@ -110,13 +110,31 @@ sudo aeloon-runtime-server rollback        # 回滚到上一个托管版本
 端口上终止 TLS，把 `wss://HOST:7420/<slug>` 经回环地址转发到对应容器，并钉扎该容器自己的
 证书。
 
-需要：带 systemd 与 Docker 的 Linux、root 权限、在主机上构建好的 Runtime 镜像（在 Runtime
-源码目录执行 `docker build -f Dockerfile.runtime -t aeloon-runtime:dev .`）、在主机防火墙和云
-安全组放行 TCP `7420`（或 `--port` 指定的端口），以及比 0.0.35 更新的 Desktop（旧版本会拒绝
-带路径的端点）。
+需要：带 systemd 与 Docker 的 Linux、root 权限、主机上已有的 Runtime 镜像（见下文）、在主机
+防火墙和云安全组放行 TCP `7420`（或 `--port` 指定的端口），以及比 0.0.35 更新的 Desktop（旧
+版本会拒绝带路径的端点）。
+
+### 准备 Runtime 镜像
+
+租户容器和群容器都跑一个主机上必须已经存在的 Runtime 镜像。从发布包安装的服务器没有源码，
+发布流程也不产出镜像，因此要在有 Runtime 源码的机器上切到主机所用的 tag 构建，再拷贝过去：
 
 ```bash
-sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:dev \
+git checkout runtime-v<版本>               # 在 Runtime 源码检出里执行
+docker build -f Dockerfile.runtime -t aeloon-runtime:<版本> .
+docker save aeloon-runtime:<版本> | gzip | ssh HOST 'gunzip | sudo docker load'
+```
+
+镜像 tag 用 Runtime 版本号，不要用会漂移的名字：`tenant init --image` 会把这个引用写进
+`team.json`，之后创建的每个容器都用它。升级主机 Runtime 时同步重建并重新加载镜像，然后用新
+tag 重新执行 `tenant init`。
+
+已存在的容器会继续跑创建时用的那个镜像。把某个人迁到新镜像：`tenant remove alice` 后再
+`tenant add alice`，卷和已配对设备都会保留。群容器目前没有对应的做法：`group add` 会拒绝已有
+会话的 slug，`group purge` 又会删掉共享历史，所以需要跑新版 Runtime 的群只能新建一个群来替代。
+
+```bash
+sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:<版本> \
      --proxy http://172.17.0.1:7890         # 所有容器共用的出网代理，可选
 sudo aeloon-runtime-server tenant add alice          # 创建卷、容器并打印配对码
 sudo aeloon-runtime-server tenant pair alice         # 之后再出一个新码；一个码对应一台设备
@@ -145,7 +163,8 @@ uid，因此这套方案适合同一个团队内部使用，不适合互不信�
 
 ### 群组与 Hub
 
-升级宿主机 Runtime 后，沿用现有公网地址和端口重新运行 `tenant init`。它保留证书和租户，
+升级宿主机 Runtime 后，重新加载配套镜像，沿用现有公网地址和端口、带上新的 `--image` tag 重新
+运行 `tenant init`。它保留证书和租户，
 在 `team.json` 补充 Hub 配置，并更新网关 unit 的可写状态目录。`/hub` 复用现有 TLS 端口；
 Desktop 使用当前租户的设备 token 连接。本地连接隐藏协作入口，群容器不向 Desktop 直接开放。
 

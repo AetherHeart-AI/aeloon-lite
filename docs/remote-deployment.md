@@ -112,13 +112,34 @@ its own container, data and workspace volumes, device list, and pairing codes. T
 `aeloon-gateway.service` terminates TLS on one port and routes `wss://HOST:7420/<slug>` to that
 person's container over loopback, pinning the container's own certificate.
 
-You need Linux with systemd and Docker, root, the Runtime image built on the host
-(`docker build -f Dockerfile.runtime -t aeloon-runtime:dev .` from the Runtime source), inbound
+You need Linux with systemd and Docker, root, a Runtime image on the host (see below), inbound
 TCP `7420` (or `--port`) in the host firewall and cloud security group, and a Desktop newer than
 0.0.35 (earlier versions reject the path in the endpoint).
 
+### Prepare the Runtime image
+
+Tenant and group containers run a Runtime image the host must already hold. A server installed
+from a release archive has no source tree, and the release publishes no image, so build it where
+the Runtime source is checked out at the tag the host runs, then copy it over:
+
 ```bash
-sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:dev \
+git checkout runtime-v<version>            # in a Runtime source checkout
+docker build -f Dockerfile.runtime -t aeloon-runtime:<version> .
+docker save aeloon-runtime:<version> | gzip | ssh HOST 'gunzip | sudo docker load'
+```
+
+Tag the image with the Runtime version rather than a floating name: `tenant init --image` records
+the reference in `team.json`, and every container created afterwards uses it. Rebuild and reload
+the image whenever you upgrade the host Runtime, then rerun `tenant init` with the new tag.
+
+Containers keep running the image they were created from. Move a person onto a new image with
+`tenant remove alice` followed by `tenant add alice`; volumes and paired devices survive. Group
+containers have no in-place equivalent today: `group add` refuses a slug that already has a
+conversation, and `group purge` deletes the shared history, so a group that must run a newer
+Runtime is replaced by a new group.
+
+```bash
+sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:<version> \
      --proxy http://172.17.0.1:7890         # outbound proxy for every container, optional
 sudo aeloon-runtime-server tenant add alice          # volumes, container, and a pairing code
 sudo aeloon-runtime-server tenant pair alice         # a fresh code later; one code per device
@@ -150,8 +171,8 @@ and close those ports in the security group.
 
 ### Groups and the Hub
 
-Upgrade the host Runtime and rerun `tenant init` with the existing public host and port. This
-preserves the certificate and tenants, adds Hub settings to `team.json`, and refreshes the gateway
+Upgrade the host Runtime, reload the matching image, and rerun `tenant init` with the existing
+public host and port and the new `--image` tag. This preserves the certificate and tenants, adds Hub settings to `team.json`, and refreshes the gateway
 unit's writable state directory. The gateway now serves `/hub` on the same TLS port; Desktop derives
 that path and authenticates with the selected tenant's existing device token. Local Desktop profiles
 hide collaboration. Group containers are not directly reachable through the gateway.
