@@ -255,7 +255,7 @@ are currently using — its heading names that device — and nothing is copied 
 devices in the sidebar to configure another one.
 
 Per device: providers, their credentials, endpoints, models and headers; the model catalog and the
-default model; agent defaults; skills, subagents, prompt templates and context files; web search and
+default model; agent defaults; skills, Agents, prompt templates and context files; web search and
 fetch, including the search API key; image processing; the shell path; and the Aeloon Cloud login.
 
 A newly paired Runtime therefore starts from its own defaults, with no providers and no cloud

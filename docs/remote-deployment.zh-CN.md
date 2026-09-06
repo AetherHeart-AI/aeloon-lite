@@ -239,7 +239,7 @@ Docker 权限。`not_a_member` 表示当前成员资格不足，`asset_revoked` 
 是哪一台；设备之间不会复制任何内容。要配置另一台设备，先在侧栏切换过去。
 
 按设备各自保存的内容：Provider 及其密钥、端点、模型与 Header；模型目录和默认模型；Agent
-默认设置；技能、子代理、提示模板与上下文文件开关；Web Search 与 Fetch（含 Search 的 API
+默认设置；技能、Agent、提示模板与上下文文件开关；Web Search 与 Fetch（含 Search 的 API
 key）；图片处理；shell 路径；以及 Aeloon Cloud 登录。
 
 因此新配对的 Runtime 从它自己的默认值开始：没有 Provider，也没有登录云账号。团队主机上的

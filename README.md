@@ -53,8 +53,8 @@ automatically.
 For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
 status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
 
-To define specialist subagents and use agent or workspace-file mentions in a conversation, see
-[Subagents and mentions](docs/subagents-and-mentions.md).
+To put more than one Agent in a local session, or to mention an Agent or a workspace file, see
+[Local multi-agent sessions](docs/multi-agent-sessions.md).
 
 ## Uninstall and delete data
 
