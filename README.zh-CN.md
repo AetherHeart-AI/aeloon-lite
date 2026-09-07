@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
   | sudo sh
 ```
 
-如果自动检测结果不适用，可传入 `--host`、`--port` 或 `--workspace-root`。安装完成后会
+如果自动检测结果不适用，可传入 `--host` 或 `--port`。安装完成后会
 打印二维码和一次性 `AELOON1-…` 配对码。
 
 然后使用与本地模式相同的命令安装 Desktop，首次启动时选择**连接 Remote 服务器**，
@@ -51,8 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
 公网/私网地址、CA 证书、配对、升级、状态检查与卸载的简明步骤参见
 [远程部署教程](docs/remote-deployment.zh-CN.md)。
 
-要在本地会话里放入多个 Agent，或提及 Agent / 工作区文件，请参见
-[本地多 Agent 会话](docs/multi-agent-sessions.zh-CN.md)。
+Aeloon 里的 Agent 像同事一样各有一条对话和一张桌面，说明见
+[同事与对话](docs/colleagues.zh-CN.md)。
 
 ## 卸载与删除数据
 

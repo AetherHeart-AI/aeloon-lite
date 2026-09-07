@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
   | sudo sh
 ```
 
-Use `--host`, `--port`, or `--workspace-root` when the detected defaults are unsuitable. The
+Use `--host` or `--port` when the detected defaults are unsuitable. The
 installer prints a QR code and an `AELOON1-…` one-time pairing code.
 
 Then install Desktop with the same local command, choose **Connect to a remote server**, and scan
@@ -53,8 +53,8 @@ automatically.
 For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
 status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
 
-To put more than one Agent in a local session, or to mention an Agent or a workspace file, see
-[Local multi-agent sessions](docs/multi-agent-sessions.md).
+Aeloon is a set of Agents that work like colleagues, each with one conversation and its own
+desk. See [Colleagues and conversations](docs/colleagues.md).
 
 ## Uninstall and delete data
 
