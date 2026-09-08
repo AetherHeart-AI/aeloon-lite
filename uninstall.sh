@@ -9,7 +9,8 @@ usage() {
 Usage: uninstall.sh [--purge-data] [--yes]
 
 Removes the aeloon-lite desktop application. User settings and Runtime data are
-preserved unless --purge-data is specified. External projects are never removed.
+preserved unless --purge-data is specified. Nothing outside Aeloon's own
+directories is removed.
 EOF
 }
 

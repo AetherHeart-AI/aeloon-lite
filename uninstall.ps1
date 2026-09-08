@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # Removes the aeloon-lite desktop application on Windows. User settings and
-# Runtime data are preserved unless -PurgeData is specified. External projects
-# are never removed.
+# Runtime data are preserved unless -PurgeData is specified. Nothing outside
+# Aeloon's own directories is removed.
 
 [CmdletBinding()]
 param(

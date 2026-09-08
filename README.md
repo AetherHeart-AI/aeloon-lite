@@ -58,7 +58,7 @@ desk. See [Colleagues and conversations](docs/colleagues.md).
 
 ## Uninstall and delete data
 
-Remove Desktop while preserving settings, credentials, cache, Runtime data, and external projects:
+Remove Desktop while preserving settings, credentials, cache, and Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.sh \
@@ -79,10 +79,7 @@ The same two steps in PowerShell:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
-External projects are never deleted.
-
-Remove the Remote Runtime service and managed releases while preserving Runtime data and its
-configured workspace:
+Remove the Remote Runtime service and managed releases while preserving Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
@@ -95,9 +92,6 @@ Also delete private Runtime data under `/var/lib/aeloon-runtime`:
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes --purge-data
 ```
-
-The configured workspace is always preserved and must be removed separately only when the owner
-explicitly intends to delete those projects.
 
 Use `--help` on any script for all options. Release procedure and recovery details are in
 [`docs/releasing.md`](docs/releasing.md).
