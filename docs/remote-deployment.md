@@ -104,65 +104,31 @@ device already exists, upgrading or rolling back does not print a new pairing co
 If a certificate changes or a device token is revoked, use **Pair again** in Desktop with a newly
 generated server pairing code. The repair flow keeps the existing connection profile.
 
-## 6. Team hosts: one Runtime container per person
+## 6. Team hosts: one Runtime for the whole team
 
-A Docker host can run one isolated Runtime per person behind a single TLS port. Each tenant gets
-its own container, data volume, device list, and pairing codes. The host process
-`aeloon-gateway.service` terminates TLS on one port and routes `wss://HOST:7420/<slug>` to that
-person's container over loopback, pinning the container's own certificate.
-
-You need Linux with systemd and Docker, root, a Runtime image on the host (see below), inbound
-TCP `7420` (or `--port`) in the host firewall and cloud security group, and a Desktop newer than
-0.0.35 (earlier versions reject the path in the endpoint).
-
-### Prepare the Runtime image
-
-Tenant containers run a Runtime image the host must already hold. A server installed
-from a release archive has no source tree, and the release publishes no image, so build it where
-the Runtime source is checked out at the tag the host runs, then copy it over:
+One installed Runtime serves everybody. There are no per-person containers and no gateway: the
+same systemd service from section 3 is what a team connects to, and a device token is what says
+who is calling. Add people to it, hand each of them the one-time code it prints, and every device
+that redeems one is filed under that person from then on.
 
 ```bash
-git checkout runtime-v<version>            # in a Runtime source checkout
-docker build -f Dockerfile.runtime -t aeloon-runtime:<version> .
-docker save aeloon-runtime:<version> | gzip | ssh HOST 'gunzip | sudo docker load'
+sudo aeloon-runtime-server user add alice            # adds alice and prints her pairing code
+sudo aeloon-runtime-server user add alice --name "Alice Chen"
+sudo aeloon-runtime-server user pair alice           # a fresh code later; one code per device
+sudo aeloon-runtime-server user list                 # everybody on this Runtime
+sudo aeloon-runtime-server user remove alice         # off the roster; revoke her devices separately
 ```
 
-Tag the image with the Runtime version rather than a floating name: `tenant init --image` records
-the reference in `team.json`, and every container created afterwards uses it. Rebuild and reload
-the image whenever you upgrade the host Runtime, then rerun `tenant init` with the new tag.
+A code expires in ten minutes and is good for one device. `user remove` only takes somebody off
+the roster — revoke their devices with `aeloon-runtime devices revoke <device-id>` if you also
+want to cut their machines off.
 
-Containers keep running the image they were created from. Move a person onto a new image with
-`tenant remove alice` followed by `tenant add alice`; the data volume and paired devices survive.
-```bash
-sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:<version> \
-     --proxy http://172.17.0.1:7890         # outbound proxy for every container, optional
-sudo aeloon-runtime-server tenant add alice          # volumes, container, and a pairing code
-sudo aeloon-runtime-server tenant pair alice         # a fresh code later; one code per device
-sudo aeloon-runtime-server tenant list               # state, uptime, devices online, CPU, memory, disk
-sudo aeloon-runtime-server tenant status alice       # the same for one tenant plus its device list
-sudo aeloon-runtime-server tenant logs alice -f
-sudo aeloon-runtime-server tenant stop alice         # also start, restart
-sudo aeloon-runtime-server tenant remove alice       # keeps volumes and port; `add` brings it back
-sudo aeloon-runtime-server tenant purge alice --yes  # deletes the container, volumes, and state
-```
-
-`tenant init` also takes `--port`, `--memory`, `--cpus`, and `--pids` (per-tenant defaults that
-`tenant add` can override). It generates a self-signed gateway certificate under
-`~/.aeloon-runtime/gateway/tls` and pins it in every pairing code; pass `--tls-cert` and
-`--tls-key` for a CA-issued pair instead. Renew a CA certificate by replacing the files and running
-`sudo systemctl restart aeloon-gateway`. Rerunning `tenant init` keeps the certificate, so
-existing pairings stay valid.
-
-Every Runtime keeps its own settings, providers, and keys (see the next section). Seed a tenant
-with `tenant add --config-template config.json`, a Runtime
-`config.json` whose provider ids match the team's default model. Tenants share the host kernel and
-run as the same uid inside their containers, so this suits one team, not mutually distrusting
-parties.
-
-Hosts that ran tenants before the gateway existed: rerun `tenant init`, then `tenant pair <slug>`
-for each tenant (its endpoint changed, so everyone pairs again). Recreate containers with
-`tenant remove` and `tenant add` when convenient so they stop publishing their own public ports,
-and close those ports in the security group.
+That roster is what everyone's contact list is drawn from, and everyone on it is an admin: any of
+them can add people, edit shared Agents, and change the providers — including the endpoint every
+prompt in the organisation is sent to. The providers are one global set, so there is no per-person
+metering. This suits one team, not mutually distrusting parties: colleagues share the host, and an
+Agent's shell reaches the whole data directory. Do not put people on one Runtime who must not read
+each other's work.
 
 ## 7. Each Runtime keeps its own settings
 
@@ -175,8 +141,8 @@ default model; agent defaults; skills, Agents, prompt templates and context file
 fetch, including the search API key; image processing; the shell path; and the Aeloon Cloud login.
 
 A newly paired Runtime therefore starts from its own defaults, with no providers and no cloud
-account. Seed a team host's tenants with `tenant add --config-template config.json` (see the
-previous section).
+account. Configure it once from any device on it: the settings are the organisation's, not the
+device's.
 
 Settings are readable and writable only while that device is connected: when the active device is
 offline or reconnecting, the panel reports the connection error and offers a retry instead of
@@ -212,7 +178,5 @@ The configured workspace is always preserved.
   traversal permissions.
 - Detailed logs: run `aeloon-runtime-server logs` or
   `journalctl -u aeloon-runtime.service -n 100 --no-pager`.
-- Tenant gateway: check `systemctl status aeloon-gateway` and
-  `journalctl -u aeloon-gateway -n 100 --no-pager`. A `404` means the path names no tenant, a
-  removed one, or one paired before `tenant pair` recorded its fingerprint; a `502` means the
-  container is stopped or its certificate changed (run `tenant pair <slug>` again).
+- Pairing refused: `user list` shows whether the person is on the roster, and a code lasts ten
+  minutes for one device — `user pair <id>` issues a fresh one.
