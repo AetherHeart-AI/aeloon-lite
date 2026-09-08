@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
   | sudo sh
 ```
 
-Use `--host`, `--port`, or `--workspace-root` when the detected defaults are unsuitable. The
+Use `--host` or `--port` when the detected defaults are unsuitable. The
 installer prints a QR code and an `AELOON1-…` one-time pairing code.
 
 Then install Desktop with the same local command, choose **Connect to a remote server**, and scan
@@ -53,12 +53,12 @@ automatically.
 For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
 status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
 
-To put more than one Agent in a local session, or to mention an Agent or a workspace file, see
-[Local multi-agent sessions](docs/multi-agent-sessions.md).
+Aeloon is a set of Agents that work like colleagues, each with one conversation and its own
+desk. See [Colleagues and conversations](docs/colleagues.md).
 
 ## Uninstall and delete data
 
-Remove Desktop while preserving settings, credentials, cache, Runtime data, and external projects:
+Remove Desktop while preserving settings, credentials, cache, and Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.sh \
@@ -79,10 +79,7 @@ The same two steps in PowerShell:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
-External projects are never deleted.
-
-Remove the Remote Runtime service and managed releases while preserving Runtime data and its
-configured workspace:
+Remove the Remote Runtime service and managed releases while preserving Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
@@ -95,9 +92,6 @@ Also delete private Runtime data under `/var/lib/aeloon-runtime`:
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes --purge-data
 ```
-
-The configured workspace is always preserved and must be removed separately only when the owner
-explicitly intends to delete those projects.
 
 Use `--help` on any script for all options. Release procedure and recovery details are in
 [`docs/releasing.md`](docs/releasing.md).

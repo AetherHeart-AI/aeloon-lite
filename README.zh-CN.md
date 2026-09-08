@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
   | sudo sh
 ```
 
-如果自动检测结果不适用，可传入 `--host`、`--port` 或 `--workspace-root`。安装完成后会
+如果自动检测结果不适用，可传入 `--host` 或 `--port`。安装完成后会
 打印二维码和一次性 `AELOON1-…` 配对码。
 
 然后使用与本地模式相同的命令安装 Desktop，首次启动时选择**连接 Remote 服务器**，
@@ -51,12 +51,12 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
 公网/私网地址、CA 证书、配对、升级、状态检查与卸载的简明步骤参见
 [远程部署教程](docs/remote-deployment.zh-CN.md)。
 
-要在本地会话里放入多个 Agent，或提及 Agent / 工作区文件，请参见
-[本地多 Agent 会话](docs/multi-agent-sessions.zh-CN.md)。
+Aeloon 里的 Agent 像同事一样各有一条对话和一张桌面，说明见
+[同事与对话](docs/colleagues.zh-CN.md)。
 
 ## 卸载与删除数据
 
-卸载 Desktop，但保留设置、凭据、缓存、Runtime 数据和外部项目：
+卸载 Desktop，但保留设置、凭据、缓存和 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.sh \
@@ -77,9 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
-外部项目始终不会被删除。
-
-卸载 Remote Runtime 服务和托管版本，但保留 Runtime 数据及已配置工作区：
+卸载 Remote Runtime 服务和托管版本，但保留 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
@@ -92,8 +90,6 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes --purge-data
 ```
-
-已配置工作区始终保留；只有项目所有者明确要删除这些项目时，才应另行手动处理。
 
 所有脚本均可使用 `--help` 查看完整参数。发布与恢复流程参见
 [`docs/releasing.md`](docs/releasing.md)。

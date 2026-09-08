@@ -37,8 +37,30 @@ def validate_policy(
     current_repository: str,
     closing_issues: Sequence[dict[str, Any]],
     parent_loader: Callable[[str, int], dict[str, Any] | None],
+    *,
+    base_ref: str = "",
 ) -> None:
     visible_body = re.sub(r"<!--.*?-->", "", body or "", flags=re.DOTALL)
+    # GitHub omits closing references for PRs targeting the migration branch.
+    # Require one explicit local declaration there and validate its native parent
+    # exactly as on main. This is tracking; merging future does not close Issues.
+    if base_ref == "future" and not closing_issues:
+        declarations = re.findall(
+            r"^[ \t]*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[^\r\n]*$",
+            visible_body, re.MULTILINE | re.IGNORECASE,
+        )
+        for declaration in declarations:
+            match = re.fullmatch(
+                r"[ \t]*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[ \t]+#([1-9][0-9]*)[ \t]*",
+                declaration, re.IGNORECASE,
+            )
+            if not match:
+                raise PolicyError("Future PRs must use standalone local closing declarations: Closes #NUMBER.")
+        closing_issues = [
+            {"number": int(declaration.strip().split("#")[1]),
+             "repository": {"nameWithOwner": current_repository}}
+            for declaration in declarations
+        ]
     impacts = IMPACT_RE.findall(visible_body)
     public_fields = [value.strip() for value in PUBLIC_FIELD_RE.findall(visible_body)]
     if len(impacts) != 1 or len(public_fields) != 1:
@@ -109,6 +131,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       body
+      baseRefName
       closingIssuesReferences(first: 100) {
         nodes { number repository { nameWithOwner } }
         pageInfo { hasNextPage }
@@ -173,6 +196,7 @@ def main() -> int:
             repository,
             pull_request["closingIssuesReferences"]["nodes"],
             client.parent,
+            base_ref=pull_request.get("baseRefName", ""),
         )
     except PolicyError as error:
         print(f"public-issue-policy: {error}", file=sys.stderr)

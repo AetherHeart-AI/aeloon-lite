@@ -14,8 +14,7 @@ usage() {
 Usage: uninstall-server.sh [--purge-data] [--yes]
 
 Removes the Aeloon Runtime systemd service and managed releases. Runtime data is
-preserved unless --purge-data is specified. The configured workspace is always
-preserved.
+preserved unless --purge-data is specified.
 EOF
 }
 
@@ -47,15 +46,10 @@ fi
   exit 2
 }
 
-WORKSPACE_ROOT=""
-if [ -r "$STATE_FILE" ]; then
-  WORKSPACE_ROOT=$(sed -n 's/.*"workspace_root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STATE_FILE" | head -n 1)
-fi
-
 if [ "$ASSUME_YES" -eq 0 ]; then
   detail=""
   [ "$PURGE_DATA" -eq 0 ] || detail=" and delete private Runtime data"
-  printf 'Uninstall Aeloon Runtime%s? The workspace will be preserved. [y/N] ' "$detail" >&2
+  printf 'Uninstall Aeloon Runtime%s? [y/N] ' "$detail" >&2
   if [ -t 0 ]; then
     IFS= read -r reply || reply=""
   elif IFS= read -r reply 2>/dev/null </dev/tty; then
@@ -131,7 +125,4 @@ fi
 echo "Uninstalled Aeloon Runtime server."
 if [ "$PURGE_DATA" -eq 0 ] && [ -e "$DATA_ROOT" ]; then
   echo "Preserved Runtime data: $DATA_ROOT"
-fi
-if [ -n "$WORKSPACE_ROOT" ]; then
-  echo "Preserved workspace: $WORKSPACE_ROOT"
 fi

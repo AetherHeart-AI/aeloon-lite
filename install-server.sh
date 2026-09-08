@@ -6,7 +6,6 @@ RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
 PREFIX=${AELOON_RUNTIME_PREFIX:-/opt/aeloon-runtime}
 HOST=""
 PORT=""
-WORKSPACE_ROOT=""
 TLS_CERT=""
 TLS_KEY=""
 DOWNLOAD_ONLY=""
@@ -16,7 +15,7 @@ INSTALL_ACTION="install"
 usage() {
   cat <<'EOF'
 Usage: install-server.sh [--host DNS_OR_IPV4] [--port PORT]
-                         [--workspace-root PATH] [--tls-cert FULLCHAIN_PEM]
+                         [--tls-cert FULLCHAIN_PEM]
                          [--tls-key PRIVATE_KEY] [--download-only DIRECTORY]
                          [--if-installed overwrite|update|skip]
 EOF
@@ -26,7 +25,6 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --host) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; HOST=$2; shift 2 ;;
     --port) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; PORT=$2; shift 2 ;;
-    --workspace-root) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; WORKSPACE_ROOT=$2; shift 2 ;;
     --tls-cert) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_CERT=$2; shift 2 ;;
     --tls-key) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_KEY=$2; shift 2 ;;
     --download-only) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; DOWNLOAD_ONLY=$2; shift 2 ;;
@@ -301,7 +299,6 @@ RUNTIME_COMMAND="$RELEASE_ROOT/bin/aeloon-runtime"
 set -- install --runtime-command "$RUNTIME_COMMAND" --release-root "$RELEASE_ROOT" --release-version "$VERSION"
 [ -z "$HOST" ] || set -- "$@" --host "$HOST"
 [ -z "$PORT" ] || set -- "$@" --port "$PORT"
-[ -z "$WORKSPACE_ROOT" ] || set -- "$@" --workspace-root "$WORKSPACE_ROOT"
 [ -z "$TLS_CERT" ] || set -- "$@" --tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"
 
 install_upgrade_wrapper() {

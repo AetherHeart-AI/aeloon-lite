@@ -30,14 +30,13 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/ins
   | sudo sh
 ```
 
-To choose the address, port, and workspace explicitly:
+To choose the address and port explicitly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh \
   | sudo sh -s -- \
       --host runtime.example.com \
-      --port 7420 \
-      --workspace-root /srv/aeloon-workspaces
+      --port 7420
 ```
 
 For a LAN or Tailscale deployment, use the reachable private address with `--host`, for example
@@ -99,154 +98,37 @@ sudo /opt/aeloon-runtime/upgrade           # upgrade to the current stable Runti
 sudo aeloon-runtime-server rollback        # return to the previous managed release
 ```
 
-An upgrade preserves Runtime data, workspace configuration, TLS paths, and paired devices. When a
+An upgrade preserves Runtime data, TLS paths, and paired devices. When a
 device already exists, upgrading or rolling back does not print a new pairing code.
 
 If a certificate changes or a device token is revoked, use **Pair again** in Desktop with a newly
 generated server pairing code. The repair flow keeps the existing connection profile.
 
-## 6. Team hosts: one Runtime container per person
+## 6. Team hosts: one Runtime for the whole team
 
-A Docker host can run one isolated Runtime per person behind a single TLS port. Each tenant gets
-its own container, data and workspace volumes, device list, and pairing codes. The host process
-`aeloon-gateway.service` terminates TLS on one port and routes `wss://HOST:7420/<slug>` to that
-person's container over loopback, pinning the container's own certificate.
-
-You need Linux with systemd and Docker, root, a Runtime image on the host (see below), inbound
-TCP `7420` (or `--port`) in the host firewall and cloud security group, and a Desktop newer than
-0.0.35 (earlier versions reject the path in the endpoint).
-
-### Prepare the Runtime image
-
-Tenant and group containers run a Runtime image the host must already hold. A server installed
-from a release archive has no source tree, and the release publishes no image, so build it where
-the Runtime source is checked out at the tag the host runs, then copy it over:
+One installed Runtime serves everybody. There are no per-person containers and no gateway: the
+same systemd service from section 3 is what a team connects to, and a device token is what says
+who is calling. Add people to it, hand each of them the one-time code it prints, and every device
+that redeems one is filed under that person from then on.
 
 ```bash
-git checkout runtime-v<version>            # in a Runtime source checkout
-docker build -f Dockerfile.runtime -t aeloon-runtime:<version> .
-docker save aeloon-runtime:<version> | gzip | ssh HOST 'gunzip | sudo docker load'
+sudo aeloon-runtime-server user add alice            # adds alice and prints her pairing code
+sudo aeloon-runtime-server user add alice --name "Alice Chen"
+sudo aeloon-runtime-server user pair alice           # a fresh code later; one code per device
+sudo aeloon-runtime-server user list                 # everybody on this Runtime
+sudo aeloon-runtime-server user remove alice         # off the roster; revoke her devices separately
 ```
 
-Tag the image with the Runtime version rather than a floating name: `tenant init --image` records
-the reference in `team.json`, and every container created afterwards uses it. Rebuild and reload
-the image whenever you upgrade the host Runtime, then rerun `tenant init` with the new tag.
+A code expires in ten minutes and is good for one device. `user remove` only takes somebody off
+the roster — revoke their devices with `aeloon-runtime devices revoke <device-id>` if you also
+want to cut their machines off.
 
-Containers keep running the image they were created from. Move a person onto a new image with
-`tenant remove alice` followed by `tenant add alice`; volumes and paired devices survive. Group
-containers have no in-place equivalent today: `group add` refuses a slug that already has a
-conversation, and `group purge` deletes the shared history, so a group that must run a newer
-Runtime is replaced by a new group.
-
-```bash
-sudo aeloon-runtime-server tenant init --host 47.94.133.59 --image aeloon-runtime:<version> \
-     --proxy http://172.17.0.1:7890         # outbound proxy for every container, optional
-sudo aeloon-runtime-server tenant add alice          # volumes, container, and a pairing code
-sudo aeloon-runtime-server tenant pair alice         # a fresh code later; one code per device
-sudo aeloon-runtime-server tenant list               # state, uptime, devices online, CPU, memory, disk
-sudo aeloon-runtime-server tenant status alice       # the same for one tenant plus its device list
-sudo aeloon-runtime-server tenant logs alice -f
-sudo aeloon-runtime-server tenant stop alice         # also start, restart
-sudo aeloon-runtime-server tenant remove alice       # keeps volumes and port; `add` brings it back
-sudo aeloon-runtime-server tenant purge alice --yes  # deletes the container, volumes, and state
-```
-
-`tenant init` also takes `--port`, `--memory`, `--cpus`, and `--pids` (per-tenant defaults that
-`tenant add` can override). It generates a self-signed gateway certificate under
-`~/.aeloon-runtime/gateway/tls` and pins it in every pairing code; pass `--tls-cert` and
-`--tls-key` for a CA-issued pair instead. Renew a CA certificate by replacing the files and running
-`sudo systemctl restart aeloon-gateway`. Rerunning `tenant init` keeps the certificate, so
-existing pairings stay valid.
-
-Every Runtime keeps its own settings, providers, and keys (see the next section). Seed a tenant
-with `tenant add --config-template config.json`, a Runtime
-`config.json` whose provider ids match the team's default model. Tenants share the host kernel and
-run as the same uid inside their containers, so this suits one team, not mutually distrusting
-parties.
-
-Hosts that ran tenants before the gateway existed: rerun `tenant init`, then `tenant pair <slug>`
-for each tenant (its endpoint changed, so everyone pairs again). Recreate containers with
-`tenant remove` and `tenant add` when convenient so they stop publishing their own public ports,
-and close those ports in the security group.
-
-### Groups and the Hub
-
-Upgrade the host Runtime, reload the matching image, and rerun `tenant init` with the existing
-public host and port and the new `--image` tag. This preserves the certificate and tenants, adds Hub settings to `team.json`, and refreshes the gateway
-unit's writable state directory. The gateway now serves `/hub` on the same TLS port; Desktop derives
-that path and authenticates with the selected tenant's existing device token. Local Desktop profiles
-hide collaboration. Group containers are not directly reachable through the gateway.
-
-```bash
-# The template contains model/provider settings for group execution; keep it private (0600).
-aeloon-runtime-server tenant init --host example.com --port 7420 \
-  --hub-port 42000 --group-config-template /root/group-config.json
-aeloon-runtime-server group add design --owner alice --member bob --title 'Design team'
-aeloon-runtime-server group list --json
-aeloon-runtime-server group members design add carol
-```
-
-Hub needs root and a local Docker daemon: it verifies devices directly from each user tenant's
-Docker data volume. Rootless or remote Docker is not supported. User identity is the tenant slug;
-`hub` is reserved. A group slug shares the same namespace as user tenants. Members can configure
-Agents; only the owner can add/remove members. Any user can create a group through Desktop when the
-host's group config template is configured.
-
-For a CLI session, claim a normal tenant pairing code once, then use the saved credential:
-
-```bash
-aeloon-runtime hub login --pairing 'AELOON1-…'
-aeloon-runtime hub conversations
-aeloon-runtime hub agents design add --file writer.md
-aeloon-runtime hub send design 'Draft a proposal' --mention agent:writer
-aeloon-runtime hub tail design --follow --deltas
-aeloon-runtime hub handoff create --from-conversation design --select 1-3 --no-files
-aeloon-runtime hub forward ASSET_ID --to dm:alice:bob
-aeloon-runtime hub card attach ASSET_ID --thread THREAD_ID --text 'Review this context'
-aeloon-runtime hub handoff revoke ASSET_ID
-```
-
-Create a DM first with `hub dm bob`. Private snapshots use `handoff create --from-thread THREAD_ID`;
-`--select` counts private turns from 1, or shared-message sequence numbers. `--file` selects file IDs
-(for private artifacts, their paths); `--no-files` omits files. Only explicit mention blocks run
-Agents; text that happens to contain an @ and mentions frozen inside cards do not. Each Agent has its
-own project directory and thread. Files and artifacts cross environments only through messages.
-
-Host `team.json` defaults:
-
-| Field | Default | Meaning |
-|---|---:|---|
-| `hub_port` | 42000 | Loopback listener; cannot overlap gateway or tenant ports 41000–41999 |
-| `hub_idle_stop_s` | 1800 | Stop idle group containers; zero disables idle stopping |
-| `hub_file_quota_bytes` | 1073741824 | Per-user total logical uploaded bytes, including artifacts and retained snapshots |
-| `group_config_template` | null | Required model configuration for new groups |
-
-Each file is limited to 25 MiB, message pages to 200. Equal file contents share one immutable blob,
-but each uploaded reference counts toward the owner's quota. Set a positive quota appropriate to disk
-capacity; existing files remain readable when reducing the limit. Restart the gateway after changing
-Hub settings. Conversations and cards remain readable while group containers are stopped. The next
-Agent mention starts the container. Failed/cancelled runs do not advance the Agent's message pointer;
-a Hub restart marks interrupted runs failed so a new mention can retry their context.
-
-`group remove GROUP` retains volumes and Hub history. `group purge GROUP --yes` permanently removes
-the container, volumes and shared conversation; cancel queued/running runs first. Garbage collection
-removes unreferenced blobs while preserving files referenced by frozen assets. Snapshot revocation
-blocks future reads by recipients, but cannot erase copies already downloaded or consumed by an Agent.
-Back up the Hub SQLite database using SQLite's backup API and copy `hub/files/`, together with tenant
-state and volumes; do not copy a live WAL database file alone.
-
-```bash
-journalctl -u aeloon-gateway -n 100 --no-pager
-aeloon-runtime-server group status design
-aeloon-runtime-server group logs design
-aeloon-runtime hub runs design
-aeloon-runtime hub run cancel RUN_ID
-```
-
-If Hub is absent, check host Runtime version, the gateway unit's `ReadWritePaths`, loopback port
-availability and local Docker access. `not_a_member` means current membership does not grant access;
-`asset_revoked` means the owner revoked sharing; `container_unavailable` means the group's execution
-environment is missing or cannot start. For a disconnected tail, resume with `--after LAST_SEQ`.
+That roster is what everyone's contact list is drawn from, and everyone on it is an admin: any of
+them can add people, edit shared Agents, and change the providers — including the endpoint every
+prompt in the organisation is sent to. The providers are one global set, so there is no per-person
+metering. This suits one team, not mutually distrusting parties: colleagues share the host, and an
+Agent's shell reaches the whole data directory. Do not put people on one Runtime who must not read
+each other's work.
 
 ## 7. Each Runtime keeps its own settings
 
@@ -259,8 +141,8 @@ default model; agent defaults; skills, Agents, prompt templates and context file
 fetch, including the search API key; image processing; the shell path; and the Aeloon Cloud login.
 
 A newly paired Runtime therefore starts from its own defaults, with no providers and no cloud
-account. Seed a team host's tenants with `tenant add --config-template config.json` (see the
-previous section).
+account. Configure it once from any device on it: the settings are the organisation's, not the
+device's.
 
 Settings are readable and writable only while that device is connected: when the active device is
 offline or reconnecting, the panel reports the connection error and offers a retry instead of
@@ -296,7 +178,5 @@ The configured workspace is always preserved.
   traversal permissions.
 - Detailed logs: run `aeloon-runtime-server logs` or
   `journalctl -u aeloon-runtime.service -n 100 --no-pager`.
-- Tenant gateway: check `systemctl status aeloon-gateway` and
-  `journalctl -u aeloon-gateway -n 100 --no-pager`. A `404` means the path names no tenant, a
-  removed one, or one paired before `tenant pair` recorded its fingerprint; a `502` means the
-  container is stopped or its certificate changed (run `tenant pair <slug>` again).
+- Pairing refused: `user list` shows whether the person is on the roster, and a code lasts ten
+  minutes for one device — `user pair <id>` issues a fresh one.

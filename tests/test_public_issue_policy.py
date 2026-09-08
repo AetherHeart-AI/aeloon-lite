@@ -54,6 +54,40 @@ class PublicIssuePolicyTests(unittest.TestCase):
                 lambda _repository, _number: parent(12),
             )
 
+    def test_future_public_pr_validates_declared_native_child(self) -> None:
+        POLICY.validate_policy(
+            "Release-Impact: public\nPublic-Issue: AetherHeart-AI/aeloon-lite#12\nCloses #52",
+            RUNTIME, [], lambda _repository, number: parent(12) if number == 52 else None,
+            base_ref="future",
+        )
+
+    def test_future_does_not_relax_parent_or_cardinality(self) -> None:
+        for declaration, owner in [
+            ("Closes #52", 13), ("", 12), ("Closes #52\nFixes #53", 12),
+            ("Closes other/repo#52", 12), ("Closes #52, #53", 12),
+            ("<!-- Closes #52 -->", 12),
+        ]:
+            with self.subTest(declaration=declaration, owner=owner):
+                with self.assertRaises(POLICY.PolicyError):
+                    POLICY.validate_policy(
+                        "Release-Impact: public\nPublic-Issue: AetherHeart-AI/aeloon-lite#12\n" + declaration,
+                        RUNTIME, [], lambda _repository, _number: parent(owner), base_ref="future",
+                    )
+
+    def test_main_still_requires_github_closing_reference(self) -> None:
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.validate_policy(
+                "Release-Impact: public\nPublic-Issue: AetherHeart-AI/aeloon-lite#12\nCloses #52",
+                RUNTIME, [], lambda _repository, _number: parent(12), base_ref="main",
+            )
+
+    def test_future_internal_cannot_declare_public_child(self) -> None:
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.validate_policy(
+                "Release-Impact: internal\nPublic-Issue: none\nCloses #52",
+                RUNTIME, [], lambda _repository, _number: parent(12), base_ref="future",
+            )
+
     def test_valid_internal_pr(self) -> None:
         POLICY.validate_policy(
             """Release-Impact: internal
