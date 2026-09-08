@@ -75,3 +75,11 @@ The GitHub App `Aeloon Issue Automation` is installed only on `aeloon-lite`, `ae
 the organization variable `AELOON_ISSUE_APP_ID` and the three-repository organization secret
 `AELOON_ISSUE_APP_PRIVATE_KEY`; the default `GITHUB_TOKEN` is intentionally not used for cross-repo
 Issue operations.
+
+### Migration PRs targeting future
+
+GitHub does not populate automatic closing references for the non-default `future`
+branch. These PRs must declare a standalone `Closes #NUMBER` line. The policy
+checks exactly one local Issue and its native public parent, just as on main.
+Merging into future does not close the child or complete the public parent; final
+default-branch integration remains responsible for that lifecycle.
