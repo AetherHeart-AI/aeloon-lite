@@ -3,18 +3,19 @@ set -eu
 
 ASSUME_YES=0
 PURGE_DATA=0
-INSTALL_ROOT="/opt/aeloon-runtime"
-STATE_FILE="/etc/aeloon-runtime/install.json"
-UNIT_FILE="/etc/systemd/system/aeloon-runtime.service"
-MANAGEMENT_LINK="/usr/local/bin/aeloon-runtime-server"
-DATA_ROOT="/var/lib/aeloon-lite"
+PREFIX=${AELOON_RUNTIME_PREFIX:-$HOME/.local/share/aeloon-runtime}
+BIN_DIR=${AELOON_RUNTIME_BIN_DIR:-$HOME/.local/bin}
+UNIT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/aeloon-runtime.service"
+DATA_ROOT="$HOME/.aeloon-lite"
 
 usage() {
   cat <<'EOF'
 Usage: uninstall-server.sh [--purge-data] [--yes]
 
-Removes the Aeloon Runtime systemd service and managed releases. Runtime data is
-preserved unless --purge-data is specified.
+Stops the aeloon-runtime systemd user service if there is one, then removes the
+Runtime releases under ~/.local/share/aeloon-runtime and the command links in
+~/.local/bin. Runtime data under ~/.aeloon-lite is preserved unless
+--purge-data is specified.
 EOF
 }
 
@@ -28,23 +29,18 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ "$(uname -s)" = Linux ] || {
-  echo "Aeloon Runtime server uninstall supports Linux systemd hosts only." >&2
+  echo "Aeloon Runtime server uninstall supports Linux hosts only." >&2
   exit 2
 }
 
 INSTALLED=0
-if [ -e "$INSTALL_ROOT" ] || [ -e "$STATE_FILE" ] || [ -e "$UNIT_FILE" ] || [ -L "$MANAGEMENT_LINK" ]; then
+if [ -e "$PREFIX" ] || [ -e "$UNIT_FILE" ] || [ -L "$BIN_DIR/aeloon-runtime" ] || [ -L "$BIN_DIR/aeloon-runtime-server" ]; then
   INSTALLED=1
 fi
 if [ "$INSTALLED" -eq 0 ] && { [ "$PURGE_DATA" -eq 0 ] || [ ! -e "$DATA_ROOT" ]; }; then
   echo "Aeloon Runtime server is not installed."
   exit 0
 fi
-
-[ "$(id -u)" -eq 0 ] || {
-  echo "Server uninstall requires root; pipe this script to sudo sh." >&2
-  exit 2
-}
 
 if [ "$ASSUME_YES" -eq 0 ]; then
   detail=""
@@ -65,62 +61,20 @@ if [ "$ASSUME_YES" -eq 0 ]; then
   esac
 fi
 
-json_number() {
-  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$STATE_FILE" | head -n 1
-}
-
-remove_ufw_rules() {
-  port=$1
-  command -v ufw >/dev/null 2>&1 || return 0
-  while :; do
-    rule=$(ufw status numbered 2>/dev/null | awk -v port="$port" '
-      $0 ~ "Aeloon Runtime" && $0 ~ (port "/tcp") {
-        value=$0; sub(/^\[[[:space:]]*/, "", value); sub(/\].*$/, "", value); number=value + 0
-        if (number > maximum) maximum=number
-      }
-      END { if (maximum > 0) print maximum }
-    ')
-    [ -n "$rule" ] || break
-    ufw --force delete "$rule" >/dev/null 2>&1 || break
-  done
-}
-
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl disable --now aeloon-runtime.service >/dev/null 2>&1 || true
+if [ -e "$UNIT_FILE" ] && command -v systemctl >/dev/null 2>&1; then
+  systemctl --user disable --now aeloon-runtime.service >/dev/null 2>&1 || true
 fi
-
-if [ -r "$STATE_FILE" ]; then
-  ufw_port=$(json_number ufw)
-  [ -z "$ufw_port" ] || remove_ufw_rules "$ufw_port"
-  runtime_port=$(json_number firewalld_runtime)
-  permanent_port=$(json_number firewalld_permanent)
-  legacy_port=$(json_number firewalld)
-  if command -v firewall-cmd >/dev/null 2>&1; then
-    [ -z "$runtime_port" ] || firewall-cmd "--remove-port=$runtime_port/tcp" >/dev/null 2>&1 || true
-    [ -z "$permanent_port" ] || firewall-cmd --permanent "--remove-port=$permanent_port/tcp" >/dev/null 2>&1 || true
-    if [ -n "$legacy_port" ]; then
-      firewall-cmd "--remove-port=$legacy_port/tcp" >/dev/null 2>&1 || true
-      firewall-cmd --permanent "--remove-port=$legacy_port/tcp" >/dev/null 2>&1 || true
-    fi
-  fi
-fi
-
 rm -f "$UNIT_FILE"
-if [ -L "$MANAGEMENT_LINK" ]; then
-  management_target=$(readlink -f "$MANAGEMENT_LINK" 2>/dev/null || readlink "$MANAGEMENT_LINK" 2>/dev/null || true)
-  case "$management_target" in
-    "$INSTALL_ROOT"/releases/*) rm -f "$MANAGEMENT_LINK" ;;
-  esac
-fi
-rm -rf "$INSTALL_ROOT"
-[ "$PURGE_DATA" -eq 0 ] || rm -rf "$DATA_ROOT"
-rm -f "$STATE_FILE"
-rmdir "$(dirname "$STATE_FILE")" >/dev/null 2>&1 || true
-
 if command -v systemctl >/dev/null 2>&1; then
-  systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl reset-failed aeloon-runtime.service >/dev/null 2>&1 || true
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user reset-failed aeloon-runtime.service >/dev/null 2>&1 || true
 fi
+
+for name in aeloon-runtime aeloon-runtime-server; do
+  [ ! -L "$BIN_DIR/$name" ] || rm -f "$BIN_DIR/$name"
+done
+rm -rf "$PREFIX"
+[ "$PURGE_DATA" -eq 0 ] || rm -rf "$DATA_ROOT"
 
 echo "Uninstalled Aeloon Runtime server."
 if [ "$PURGE_DATA" -eq 0 ] && [ -e "$DATA_ROOT" ]; then

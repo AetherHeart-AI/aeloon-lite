@@ -12,6 +12,28 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
+# A ``tar`` that lists and extracts a minimal Runtime archive.
+FAKE_RUNTIME_TAR = """#!/bin/sh
+case " $* " in
+  *" -tzf "*)
+    printf 'aeloon-runtime/bin/aeloon-runtime\\naeloon-runtime/bin/aeloon-runtime-server\\n'
+    ;;
+  *)
+    destination=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = "-C" ]; then destination=$2; break; fi
+      shift
+    done
+    mkdir -p "$destination/aeloon-runtime/bin"
+    for name in aeloon-runtime aeloon-runtime-server; do
+      printf '#!/bin/sh\\nexit 0\\n' > "$destination/aeloon-runtime/bin/$name"
+      chmod 0755 "$destination/aeloon-runtime/bin/$name"
+    done
+    ;;
+esac
+"""
+
+
 def write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -186,103 +208,145 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("install -y ", f"{install_log} ")
         self.assertNotIn("--reinstall", install_log)
 
-    def test_runtime_installed_action_can_skip_from_install_state(self) -> None:
-        fixture = self._fixture("runtime", b"runtime-fixture")
-        state_file = Path(fixture["state_file"])
-        state_file.write_text('{"current_version": "1.2.3"}\n', encoding="utf-8")
-        result = subprocess.run(
-            ["sh", str(ROOT / "install-server.sh"), "--if-installed", "skip"],
-            capture_output=True,
-            text=True,
-            env=fixture["env"],
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Keeping the installed Aeloon Runtime 1.2.3", result.stdout)
-        self.assertFalse(Path(fixture["curl_log"]).exists())
-
-    def test_runtime_install_writes_working_upgrade_wrapper_and_forwards_tls(self) -> None:
+    def test_runtime_install_lays_out_a_user_prefix_and_prints_how_to_run_it(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
         tools = fixture["tools"]
         assert isinstance(tools, Path)
-        prefix = tools.parent / "prefix"
-        temporary_root = tools.parent / "tmp"
-        temporary_root.mkdir()
-        server_log = tools.parent / "server.log"
-        write_executable(tools / "id", "#!/bin/sh\nprintf '0\\n'\n")
-        write_executable(tools / "chown", "#!/bin/sh\nexit 0\n")
-        write_executable(tools / "systemctl", "#!/bin/sh\nexit 0\n")
-        write_executable(
-            tools / "tar",
-            """#!/bin/sh
-case " $* " in
-  *" -tzf "*)
-    printf 'aeloon-runtime/bin/aeloon-runtime\\naeloon-runtime/bin/aeloon-runtime-server\\n'
-    ;;
-  *)
-    destination=""
-    while [ "$#" -gt 0 ]; do
-      if [ "$1" = "-C" ]; then destination=$2; break; fi
-      shift
-    done
-    mkdir -p "$destination/aeloon-runtime/bin"
-    printf '#!/bin/sh\\nexit 0\\n' > "$destination/aeloon-runtime/bin/aeloon-runtime"
-    cat > "$destination/aeloon-runtime/bin/aeloon-runtime-server" <<'EOF'
-#!/bin/sh
-printf '%s\\n' "$*" > "$FIXTURE_SERVER_LOG"
-printf '{"current_version":"1.2.3"}\\n' > "$AELOON_RUNTIME_STATE_FILE"
-exit 0
-EOF
-    chmod 0755 "$destination/aeloon-runtime/bin/aeloon-runtime" "$destination/aeloon-runtime/bin/aeloon-runtime-server"
-    ;;
-esac
-""",
-        )
-        env = {
-            **fixture["env"],
-            "AELOON_RUNTIME_PREFIX": str(prefix),
-            "FIXTURE_SERVER_LOG": str(server_log),
-            "TMPDIR": str(temporary_root),
-        }
+        home = tools.parent / "home"
+        home.mkdir()
+        write_executable(tools / "tar", FAKE_RUNTIME_TAR)
+        env = {**fixture["env"], "HOME": str(home), "PATH": f"{tools}:/usr/bin:/bin"}
         result = subprocess.run(
-            [
-                "sh",
-                str(ROOT / "install-server.sh"),
-                "--tls-cert",
-                "/etc/aeloon/fullchain.pem",
-                "--tls-key",
-                "/etc/aeloon/privkey.pem",
-            ],
+            ["sh", str(ROOT / "install-server.sh")],
             capture_output=True,
             text=True,
             env=env,
             check=False,
         )
         self.assertEqual(result.returncode, 0, f"{result.stderr}\n{result.stdout}")
-        wrapper = prefix / "upgrade"
-        self.assertTrue(os.access(wrapper, os.X_OK))
-        self.assertIn("--tls-cert /etc/aeloon/fullchain.pem --tls-key /etc/aeloon/privkey.pem", server_log.read_text())
+        prefix = home / ".local/share/aeloon-runtime"
+        release = prefix / "releases/1.2.3"
+        self.assertTrue((release / "bin/aeloon-runtime-server").is_file())
+        self.assertEqual((prefix / "current").readlink(), release)
+        for name in ("aeloon-runtime", "aeloon-runtime-server"):
+            self.assertEqual((home / ".local/bin" / name).readlink(), prefix / "current/bin" / name)
+        self.assertIn("Installed Aeloon Runtime 1.2.3", result.stdout)
+        self.assertIn(f"Add {home}/.local/bin to your PATH", result.stdout)
+        self.assertIn(f"{home}/.local/bin/aeloon-runtime-server run --host", result.stdout)
+        self.assertIn("systemd user service", result.stdout)
+        self.assertIn(
+            f"ExecStart={prefix}/current/bin/aeloon-runtime-server run --host", result.stdout
+        )
+        self.assertIn("systemctl --user enable --now aeloon-runtime", result.stdout)
+        self.assertIn("loginctl enable-linger", result.stdout)
+        self.assertNotIn("sudo", result.stdout)
+        # Nothing was started and nothing was written outside the two directories.
+        self.assertEqual(sorted(path.name for path in home.iterdir()), [".local"])
 
+        # Re-running with the same stable version downloads nothing.
+        Path(fixture["curl_log"]).unlink()
+        again = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh")],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("1.2.3 is already installed", again.stdout)
+        self.assertIn("run --host", again.stdout)
+        self.assertFalse(Path(fixture["curl_log"]).exists())
+
+        # A newer stable version lands beside the old one and takes over the links.
+        channel = Path(fixture["channel"])
+        channel.write_text(channel.read_text().replace("version=1.2.3", "version=1.3.0"))
         upgraded = subprocess.run(
-            [str(wrapper), "--if-installed", "skip"],
+            ["sh", str(ROOT / "install-server.sh")],
             capture_output=True,
             text=True,
             env=env,
             check=False,
         )
         self.assertEqual(upgraded.returncode, 0, f"{upgraded.stderr}\n{upgraded.stdout}")
-        self.assertIn("Keeping the installed Aeloon Runtime 1.2.3", upgraded.stdout)
-        self.assertEqual(list(temporary_root.iterdir()), [])
+        self.assertIn("Upgraded Aeloon Runtime 1.2.3 to 1.3.0", upgraded.stdout)
+        self.assertIn("Restart the Runtime", upgraded.stdout)
+        self.assertEqual((prefix / "current").readlink(), prefix / "releases/1.3.0")
+        self.assertTrue((release / "bin/aeloon-runtime-server").is_file())
 
-        failed = subprocess.run(
-            [str(wrapper)],
+    def test_runtime_install_refuses_to_replace_a_real_file_with_a_link(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        tools = fixture["tools"]
+        assert isinstance(tools, Path)
+        home = tools.parent / "home"
+        (home / ".local/bin").mkdir(parents=True)
+        (home / ".local/bin/aeloon-runtime").write_text("#!/bin/sh\n", encoding="utf-8")
+        write_executable(tools / "tar", FAKE_RUNTIME_TAR)
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh")],
             capture_output=True,
             text=True,
-            env={**env, "FIXTURE_FAIL_INSTALLER_FETCH": "1"},
+            env={**fixture["env"], "HOME": str(home)},
             check=False,
         )
-        self.assertEqual(failed.returncode, 22)
-        self.assertEqual(list(temporary_root.iterdir()), [])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is not a symlink", result.stderr)
+
+    def test_runtime_uninstall_removes_prefix_links_and_unit_but_keeps_data(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        home = Path(temporary.name) / "home"
+        tools = Path(temporary.name) / "bin"
+        tools.mkdir()
+        systemctl_log = Path(temporary.name) / "systemctl.log"
+        write_executable(tools / "uname", "#!/bin/sh\necho Linux\n")
+        write_executable(
+            tools / "systemctl", f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{systemctl_log}"\n'
+        )
+        prefix = home / ".local/share/aeloon-runtime"
+        (prefix / "releases/1.2.3/bin").mkdir(parents=True)
+        (prefix / "current").symlink_to(prefix / "releases/1.2.3")
+        (home / ".local/bin").mkdir(parents=True)
+        (home / ".local/bin/aeloon-runtime-server").symlink_to(
+            prefix / "current/bin/aeloon-runtime-server"
+        )
+        (home / ".local/bin/unrelated").write_text("keep", encoding="utf-8")
+        unit = home / ".config/systemd/user/aeloon-runtime.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Unit]\n", encoding="utf-8")
+        data = home / ".aeloon-lite"
+        data.mkdir()
+        (data / "runtime.sqlite").write_text("data", encoding="utf-8")
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "PATH": f"{tools}:{os.environ.get('PATH', '')}",
+        }
+        env.pop("XDG_CONFIG_HOME", None)
+        result = subprocess.run(
+            ["sh", str(ROOT / "uninstall-server.sh"), "--yes"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(prefix.exists())
+        self.assertFalse((home / ".local/bin/aeloon-runtime-server").is_symlink())
+        self.assertTrue((home / ".local/bin/unrelated").exists())
+        self.assertFalse(unit.exists())
+        self.assertIn("--user disable --now aeloon-runtime.service", systemctl_log.read_text())
+        self.assertTrue((data / "runtime.sqlite").exists())
+        self.assertIn(f"Preserved Runtime data: {data}", result.stdout)
+
+        purged = subprocess.run(
+            ["sh", str(ROOT / "uninstall-server.sh"), "--yes", "--purge-data"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(purged.returncode, 0, purged.stderr)
+        self.assertFalse(data.exists())
 
     def test_uninstall_help_documents_safe_data_defaults(self) -> None:
         for name in ("uninstall.sh", "uninstall-server.sh"):
@@ -588,7 +652,6 @@ esac
         downloads = root / "downloads"
         curl_log = root / "curl.log"
         install_log = root / "install.log"
-        state_file = root / "install.json"
         channel = root / "stable"
         artifact = root / "artifact"
         artifact.write_bytes(payload)
@@ -657,7 +720,6 @@ esac
             "FIXTURE_CURL_LOG": str(curl_log),
             "FIXTURE_INSTALL_LOG": str(install_log),
             "FIXTURE_INSTALLER": str(ROOT / "install-server.sh"),
-            "AELOON_RUNTIME_STATE_FILE": str(state_file),
         }
         return {
             "downloads": downloads,
@@ -666,7 +728,6 @@ esac
             "tools": tools,
             "curl_log": curl_log,
             "install_log": install_log,
-            "state_file": state_file,
         }
 
 

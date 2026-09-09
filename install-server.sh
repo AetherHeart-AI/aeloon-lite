@@ -3,51 +3,30 @@ set -eu
 
 REPOSITORY="AetherHeart-AI/aeloon-lite"
 RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
-PREFIX=${AELOON_RUNTIME_PREFIX:-/opt/aeloon-runtime}
-HOST=""
-PORT=""
-TLS_CERT=""
-TLS_KEY=""
+PREFIX=${AELOON_RUNTIME_PREFIX:-$HOME/.local/share/aeloon-runtime}
+BIN_DIR=${AELOON_RUNTIME_BIN_DIR:-$HOME/.local/bin}
 DOWNLOAD_ONLY=""
-IF_INSTALLED=""
-INSTALL_ACTION="install"
 
 usage() {
   cat <<'EOF'
-Usage: install-server.sh [--host DNS_OR_IPV4] [--port PORT]
-                         [--tls-cert FULLCHAIN_PEM]
-                         [--tls-key PRIVATE_KEY] [--download-only DIRECTORY]
-                         [--if-installed overwrite|update|skip]
+Usage: install-server.sh [--download-only DIRECTORY]
+
+Installs the stable Aeloon Runtime for the current user under
+~/.local/share/aeloon-runtime and links its commands into ~/.local/bin.
+Nothing is started and nothing outside the home directory is touched.
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --host) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; HOST=$2; shift 2 ;;
-    --port) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; PORT=$2; shift 2 ;;
-    --tls-cert) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_CERT=$2; shift 2 ;;
-    --tls-key) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TLS_KEY=$2; shift 2 ;;
     --download-only) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; DOWNLOAD_ONLY=$2; shift 2 ;;
-    --if-installed)
-      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
-      case "$2" in
-        overwrite|update|skip) IF_INSTALLED=$2 ;;
-        *) echo "Unsupported installed action: $2" >&2; usage >&2; exit 2 ;;
-      esac
-      shift 2
-      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if { [ -z "$TLS_CERT" ] && [ -n "$TLS_KEY" ]; } || { [ -n "$TLS_CERT" ] && [ -z "$TLS_KEY" ]; }; then
-  echo "--tls-cert and --tls-key must be provided together." >&2
-  exit 2
-fi
-
 [ "$(uname -s)" = Linux ] || {
-  echo "Aeloon Runtime server installation supports Linux systemd hosts only." >&2
+  echo "Aeloon Runtime server installation supports Linux hosts only." >&2
   exit 2
 }
 for required_command in awk curl grep sed tar; do
@@ -59,22 +38,8 @@ done
 
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/aeloon-runtime-install.XXXXXX")
 STAGING=""
-RELEASE_BACKUP=""
-RELEASE_ROOT=""
-UPGRADE_STAGING=""
-INSTALL_COMMITTED=0
 cleanup() {
   if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then rm -rf "$STAGING"; fi
-  if [ -n "$UPGRADE_STAGING" ]; then rm -f "$UPGRADE_STAGING"; fi
-  if [ -n "$RELEASE_BACKUP" ] && { [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; }; then
-    if [ "$INSTALL_COMMITTED" -eq 1 ]; then
-      rm -rf "$RELEASE_BACKUP"
-    elif [ -n "$RELEASE_ROOT" ]; then
-      rm -rf "$RELEASE_ROOT"
-      mv "$RELEASE_BACKUP" "$RELEASE_ROOT"
-      systemctl restart aeloon-runtime.service >/dev/null 2>&1 || true
-    fi
-  fi
   rm -rf "$TEMP_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
@@ -94,73 +59,16 @@ metadata_value() {
   ' "$1"
 }
 
-detect_installed_version() {
-  current_link="$PREFIX/current"
-  state_file=${AELOON_RUNTIME_STATE_FILE:-/etc/aeloon-runtime/install.json}
-  if [ -L "$current_link" ]; then
-    current_target=$(readlink "$current_link" 2>/dev/null || true)
-    if [ -n "$current_target" ]; then
-      basename "$current_target"
-      return 0
-    fi
+# Point a symlink at a target; refuse to touch anything that is not a symlink.
+link() {
+  target=$1
+  path=$2
+  if [ -e "$path" ] && [ ! -L "$path" ]; then
+    echo "Refusing to replace $path: it is not a symlink." >&2
+    exit 2
   fi
-  if [ -r "$state_file" ]; then
-    version=$(sed -n 's/.*"current_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$state_file" | head -n 1)
-    if [ -n "$version" ]; then
-      printf '%s\n' "$version"
-      return 0
-    fi
-    printf '%s\n' unknown
-    return 0
-  fi
-  if [ -e /etc/systemd/system/aeloon-runtime.service ]; then
-    printf '%s\n' unknown
-    return 0
-  fi
-  return 1
-}
-
-semver_core() {
-  printf '%s\n' "$1" | sed 's/^[0-9][0-9]*://' | sed -n \
-    's/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p'
-}
-
-semver_compare() {
-  awk -v left="$1" -v right="$2" 'BEGIN {
-    split(left, a, "."); split(right, b, ".")
-    for (i = 1; i <= 3; i++) {
-      if ((a[i] + 0) < (b[i] + 0)) { print -1; exit }
-      if ((a[i] + 0) > (b[i] + 0)) { print 1; exit }
-    }
-    print 0
-  }'
-}
-
-choose_installed_action() {
-  if [ -n "$IF_INSTALLED" ]; then
-    INSTALL_ACTION=$IF_INSTALLED
-    return
-  fi
-
-  echo "Aeloon Runtime $1 is already installed; stable is $VERSION." >&2
-  while :; do
-    printf 'Choose [o]verwrite, [u]pdate, or [s]kip: ' >&2
-    if [ -t 0 ]; then
-      IFS= read -r reply || reply=""
-    elif IFS= read -r reply 2>/dev/null </dev/tty; then
-      :
-    else
-      echo >&2
-      echo "No interactive terminal is available; rerun with --if-installed overwrite, update, or skip." >&2
-      exit 2
-    fi
-    case "$reply" in
-      o|O|overwrite|OVERWRITE) INSTALL_ACTION=overwrite; return ;;
-      u|U|update|UPDATE) INSTALL_ACTION=update; return ;;
-      s|S|skip|SKIP) INSTALL_ACTION=skip; return ;;
-      *) echo "Please choose overwrite, update, or skip." >&2 ;;
-    esac
-  done
+  rm -f "$path"
+  ln -s "$target" "$path"
 }
 
 CHANNEL_FILE="$TEMP_ROOT/stable"
@@ -205,25 +113,60 @@ else
   TAG="runtime-v$VERSION"
 fi
 
-if [ -z "$DOWNLOAD_ONLY" ] && INSTALLED_VERSION=$(detect_installed_version); then
-  choose_installed_action "$INSTALLED_VERSION"
-  case "$INSTALL_ACTION" in
-    skip)
-      echo "Keeping the installed Aeloon Runtime $INSTALLED_VERSION."
-      exit 0
-      ;;
-    update)
-      INSTALLED_CORE=$(semver_core "$INSTALLED_VERSION")
-      if [ -n "$INSTALLED_CORE" ] && [ "$(semver_compare "$INSTALLED_CORE" "$VERSION")" -ge 0 ]; then
-        echo "Installed Aeloon Runtime $INSTALLED_VERSION is already at or newer than stable $VERSION; nothing to update."
-        exit 0
-      fi
-      echo "Updating Aeloon Runtime $INSTALLED_VERSION to $VERSION."
-      ;;
-    overwrite)
-      echo "Overwriting Aeloon Runtime $INSTALLED_VERSION with stable $VERSION."
-      ;;
+RELEASES_ROOT="$PREFIX/releases"
+RELEASE_ROOT="$RELEASES_ROOT/$VERSION"
+CURRENT_LINK="$PREFIX/current"
+SERVER_COMMAND="$BIN_DIR/aeloon-runtime-server"
+
+print_next_steps() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "Add $BIN_DIR to your PATH, or call the commands by their full path." ;;
   esac
+  cat <<EOF
+
+Start the Runtime; the first start prints a one-time pairing code for Desktop:
+
+  $SERVER_COMMAND run --host <public DNS name or IPv4 address of this server>
+
+Allow inbound TCP 7420 in the host firewall and in any cloud security group.
+
+To keep it running after you log out, make it a systemd user service:
+
+  mkdir -p ~/.config/systemd/user
+  cat > ~/.config/systemd/user/aeloon-runtime.service <<'UNIT'
+  [Unit]
+  Description=Aeloon Runtime
+  Wants=network-online.target
+  After=network-online.target
+
+  [Service]
+  Type=notify
+  ExecStart=$CURRENT_LINK/bin/aeloon-runtime-server run --host <host>
+  Restart=on-failure
+  RestartSec=2s
+  WatchdogSec=30s
+
+  [Install]
+  WantedBy=default.target
+  UNIT
+  systemctl --user daemon-reload
+  systemctl --user enable --now aeloon-runtime
+  loginctl enable-linger "\$USER"
+  $SERVER_COMMAND pair
+
+Logs: journalctl --user -u aeloon-runtime -f
+EOF
+}
+
+INSTALLED_VERSION=""
+if [ -L "$CURRENT_LINK" ]; then
+  INSTALLED_VERSION=$(basename "$(readlink "$CURRENT_LINK")")
+fi
+if [ -z "$DOWNLOAD_ONLY" ] && [ "$INSTALLED_VERSION" = "$VERSION" ] && [ -x "$RELEASE_ROOT/bin/aeloon-runtime-server" ]; then
+  echo "Aeloon Runtime $VERSION is already installed under $PREFIX."
+  print_next_steps
+  exit 0
 fi
 
 case "$(uname -m)" in
@@ -248,107 +191,35 @@ awk '
 if [ -n "$DOWNLOAD_ONLY" ]; then
   mkdir -p "$DOWNLOAD_ONLY"
   cp "$ARCHIVE" "$DOWNLOAD_ONLY/$ASSET"
-  if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then
-    chown "$SUDO_UID:$SUDO_GID" "$DOWNLOAD_ONLY/$ASSET"
-  fi
   echo "Downloaded Runtime archive: $DOWNLOAD_ONLY/$ASSET"
   exit 0
 fi
 
-[ "$(id -u)" -eq 0 ] || { echo "Server deployment requires root; pipe this script to sudo sh." >&2; exit 2; }
-command -v systemctl >/dev/null 2>&1 || { echo "systemctl is unavailable; this host does not use systemd." >&2; exit 2; }
-
-RELEASES_ROOT="$PREFIX/releases"
-RELEASE_ROOT="$RELEASES_ROOT/$VERSION"
-RELEASE_CREATED=0
-if [ "$INSTALL_ACTION" = overwrite ] && { [ -e "$RELEASE_ROOT" ] || [ -L "$RELEASE_ROOT" ]; }; then
-  RELEASE_BACKUP="$PREFIX/.release-$VERSION-backup.$$"
-  if [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; then
-    echo "Runtime overwrite backup already exists: $RELEASE_BACKUP" >&2
-    exit 2
-  fi
-  mv "$RELEASE_ROOT" "$RELEASE_BACKUP"
-fi
-if [ ! -d "$RELEASE_ROOT" ]; then
-  STAGING="$RELEASES_ROOT/.$VERSION.$$"
-  mkdir -p "$STAGING" "$RELEASES_ROOT"
-  tar -xzf "$ARCHIVE" -C "$STAGING" --no-same-owner
-  [ -x "$STAGING/aeloon-runtime/bin/aeloon-runtime" ] || {
-    echo "Runtime archive is missing bin/aeloon-runtime." >&2
+mkdir -p "$RELEASES_ROOT" "$BIN_DIR"
+STAGING="$RELEASES_ROOT/.$VERSION.$$"
+mkdir -p "$STAGING"
+tar -xzf "$ARCHIVE" -C "$STAGING"
+for name in aeloon-runtime aeloon-runtime-server; do
+  [ -x "$STAGING/aeloon-runtime/bin/$name" ] || {
+    echo "Runtime archive is missing bin/$name." >&2
     exit 2
   }
-  [ -x "$STAGING/aeloon-runtime/bin/aeloon-runtime-server" ] || {
-    echo "Runtime archive is missing bin/aeloon-runtime-server." >&2
-    exit 2
-  }
-  chown -R root:root "$STAGING/aeloon-runtime"
-  chmod -R a+rX "$STAGING/aeloon-runtime"
-  mv "$STAGING/aeloon-runtime" "$RELEASE_ROOT"
-  rmdir "$STAGING"
-  STAGING=""
-  RELEASE_CREATED=1
-fi
+done
+rm -rf "$RELEASE_ROOT"
+mv "$STAGING/aeloon-runtime" "$RELEASE_ROOT"
+rmdir "$STAGING"
+STAGING=""
 
-SERVER_COMMAND="$RELEASE_ROOT/bin/aeloon-runtime-server"
-RUNTIME_COMMAND="$RELEASE_ROOT/bin/aeloon-runtime"
-[ -x "$SERVER_COMMAND" ] && [ -x "$RUNTIME_COMMAND" ] || {
-  echo "Installed Runtime release is incomplete: $RELEASE_ROOT" >&2
-  exit 2
-}
+link "$RELEASE_ROOT" "$CURRENT_LINK"
+for name in aeloon-runtime aeloon-runtime-server; do
+  link "$CURRENT_LINK/bin/$name" "$BIN_DIR/$name"
+done
 
-set -- install --runtime-command "$RUNTIME_COMMAND" --release-root "$RELEASE_ROOT" --release-version "$VERSION"
-[ -z "$HOST" ] || set -- "$@" --host "$HOST"
-[ -z "$PORT" ] || set -- "$@" --port "$PORT"
-[ -z "$TLS_CERT" ] || set -- "$@" --tls-cert "$TLS_CERT" --tls-key "$TLS_KEY"
-
-install_upgrade_wrapper() {
-  UPGRADE_STAGING=$(mktemp "$PREFIX/.upgrade.XXXXXX") || return 1
-  cat > "$UPGRADE_STAGING" <<EOF
-#!/bin/sh
-set -eu
-
-tmp=\$(mktemp "\${TMPDIR:-/tmp}/aeloon-runtime-upgrade.XXXXXX")
-cleanup() { rm -f "\$tmp"; }
-trap cleanup 0 HUP INT TERM
-status=0
-if curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \\
-  --header 'Cache-Control: no-cache' "$RAW_ROOT/install-server.sh" --output "\$tmp"; then
-  if sh "\$tmp" --if-installed update "\$@"; then
-    status=0
-  else
-    status=\$?
-  fi
+if [ -n "$INSTALLED_VERSION" ]; then
+  echo "Upgraded Aeloon Runtime $INSTALLED_VERSION to $VERSION (source commit $SOURCE_COMMIT) under $PREFIX."
+  echo "Restart the Runtime to run the new version; its data under ~/.aeloon-lite is untouched."
+  echo "The old release stays in $RELEASES_ROOT; delete it when you no longer need it."
 else
-  status=\$?
+  echo "Installed Aeloon Runtime $VERSION (source commit $SOURCE_COMMIT) under $PREFIX."
 fi
-rm -f "\$tmp"
-trap - 0 HUP INT TERM
-exit "\$status"
-EOF
-  chmod 0755 "$UPGRADE_STAGING" || return 1
-  mv "$UPGRADE_STAGING" "$PREFIX/upgrade" || return 1
-  UPGRADE_STAGING=""
-}
-
-if "$SERVER_COMMAND" "$@"; then
-  INSTALL_COMMITTED=1
-  if ! install_upgrade_wrapper; then
-    echo "Warning: Runtime installed, but $PREFIX/upgrade could not be created." >&2
-  fi
-  if [ -n "$RELEASE_BACKUP" ] && { [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; }; then
-    rm -rf "$RELEASE_BACKUP"
-    RELEASE_BACKUP=""
-  fi
-  echo "Installed Aeloon Runtime $VERSION (source commit $SOURCE_COMMIT)."
-else
-  status=$?
-  if [ -n "$RELEASE_BACKUP" ] && { [ -e "$RELEASE_BACKUP" ] || [ -L "$RELEASE_BACKUP" ]; }; then
-    rm -rf "$RELEASE_ROOT"
-    mv "$RELEASE_BACKUP" "$RELEASE_ROOT"
-    RELEASE_BACKUP=""
-    systemctl restart aeloon-runtime.service >/dev/null 2>&1 || true
-  elif [ "$RELEASE_CREATED" -eq 1 ]; then
-    rm -rf "$RELEASE_ROOT"
-  fi
-  exit "$status"
-fi
+print_next_steps

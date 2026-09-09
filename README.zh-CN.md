@@ -35,20 +35,22 @@ Windows SmartScreen 可能拦截，请选择**更多信息** > **仍要运行**�
 
 ## Remote 使用
 
-先在使用 systemd 的 Linux 服务器上安装 Runtime：
+以你登录的普通用户身份在 Linux 服务器上安装 Runtime，不需要 root：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh \
-  | sudo sh
+curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh
 ```
 
-如果自动检测结果不适用，可传入 `--host` 或 `--port`。安装完成后会
-打印二维码和一次性 `AELOON1-…` 配对码。
+然后带上 Desktop 将要连接的地址运行它。第一次启动会打印一次性 `AELOON1-…` 配对码：
+
+```bash
+aeloon-runtime-server run --host runtime.example.com
+```
 
 然后使用与本地模式相同的命令安装 Desktop，首次启动时选择**连接 Remote 服务器**，
-扫描二维码或粘贴配对码。连接成功后会保存配置，后续自动重连。
+粘贴配对码。连接成功后会保存配置，后续自动重连。
 
-公网/私网地址、CA 证书、配对、升级、状态检查与卸载的简明步骤参见
+用 systemd 常驻、CA 证书、配对、升级、团队主机与卸载的简明步骤参见
 [远程部署教程](docs/remote-deployment.zh-CN.md)。
 
 Aeloon 里的 Agent 像同事一样各有一条对话和一张桌面，说明见
@@ -77,18 +79,18 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
-卸载 Remote Runtime 服务和托管版本，但保留 Runtime 数据：
+卸载 Remote Runtime 的版本目录、命令链接和用户服务，但保留 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
-  | sudo sh -s -- --yes
+  | sh -s -- --yes
 ```
 
-同时删除 `/var/lib/aeloon-lite` 下的私有 Runtime 数据：
+同时删除 `~/.aeloon-lite` 下的私有 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
-  | sudo sh -s -- --yes --purge-data
+  | sh -s -- --yes --purge-data
 ```
 
 所有脚本均可使用 `--help` 查看完整参数。发布与恢复流程参见
