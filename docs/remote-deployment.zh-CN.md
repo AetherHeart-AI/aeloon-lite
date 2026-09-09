@@ -3,18 +3,23 @@
 [English](remote-deployment.md) | 简体中文
 
 本教程以你登录的那个普通用户身份在 Linux 服务器上安装并运行 Aeloon Runtime，然后让 Aeloon
-Desktop 连接它。全程不需要 root。
+Desktop 连接它。安装和运行 Runtime 不需要 root。
 
 ## 1. 检查服务器
 
 需要满足：
 
 - ARM64 或 x86_64 Linux 主机，以及一个普通用户账号；
+- Agent 的 Shell 工具需要 Bubblewrap（`bwrap`），并允许使用用户命名空间。如果尚未安装，
+  请管理员安装 `bubblewrap` 系统软件包；沙箱不能启动时，Shell 执行保持不可用；
 - 在主机防火墙和云安全组中放行 TCP `7420`（或自定义端口）；
 - Desktop 能访问的地址：公网 IPv4 或域名、RFC1918 私网地址，或 `100.64.0.0/10`
   CGNAT/Tailscale 地址。不接受回环、链路本地、组播、保留地址和 IPv6。
 
 ## 2. 安装 Runtime
+
+每个配对用户都有独立的个人设置和模型凭据。新增用户需要配置自己的模型访问权限，配对不会
+复制其他用户的 API 密钥。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh

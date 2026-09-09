@@ -3,19 +3,25 @@
 English | [简体中文](remote-deployment.zh-CN.md)
 
 This guide installs Aeloon Runtime on a Linux server for the user you log in as, runs it, and
-connects Aeloon Desktop to it. Nothing needs root.
+connects Aeloon Desktop to it. Installing and running Runtime needs no root.
 
 ## 1. Check the server
 
 You need:
 
 - an ARM64 or x86_64 Linux host and a normal user account on it;
+- Bubblewrap (`bwrap`) and enabled user namespaces for Agent shell tools. If missing, ask the
+  administrator to install the `bubblewrap` package. Shell execution stays unavailable until
+  the sandbox can start;
 - TCP `7420` (or a port of your choice) open in the host firewall and any cloud security group;
 - an address Desktop can reach: a public IPv4 address or DNS name, an RFC1918 LAN address, or a
   `100.64.0.0/10` CGNAT/Tailscale address. Loopback, link-local, multicast, reserved addresses, and
   IPv6 are not accepted.
 
 ## 2. Install Runtime
+
+Each paired user has separate personal settings and model credentials. Additional users configure
+their own model access; pairing does not copy another user's API keys.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh
