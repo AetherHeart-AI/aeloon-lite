@@ -86,7 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
   | sudo sh -s -- --yes
 ```
 
-Also delete private Runtime data under `/var/lib/aeloon-runtime`:
+Also delete private Runtime data under `/var/lib/aeloon-lite`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \

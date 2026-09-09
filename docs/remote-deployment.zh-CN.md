@@ -144,21 +144,21 @@ key）；图片处理；shell 路径；以及 Aeloon Cloud 登录。
 
 ## 8. 卸载
 
-删除服务与托管版本，但保留 Runtime 数据和工作区：
+删除服务与托管版本，但保留 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes
 ```
 
-同时删除 `/var/lib/aeloon-runtime` 下的私有 Runtime 数据：
+同时删除 `/var/lib/aeloon-lite` 下的私有 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes --purge-data
 ```
 
-已配置工作区始终保留。
+每位同事的桌子都在该数据目录内，`--purge-data` 会一并删除。
 
 ## 快速排障
 
