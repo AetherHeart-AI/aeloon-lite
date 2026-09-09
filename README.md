@@ -36,22 +36,24 @@ may warn; choose **More info** > **Run anyway**.
 
 ## Remote use
 
-First install Runtime on a Linux systemd server:
+Install Runtime on a Linux server as the user you log in as — no root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh \
-  | sudo sh
+curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh
 ```
 
-Use `--host` or `--port` when the detected defaults are unsuitable. The
-installer prints a QR code and an `AELOON1-…` one-time pairing code.
+Then run it with the address Desktop will connect to. The first start prints an `AELOON1-…`
+one-time pairing code:
 
-Then install Desktop with the same local command, choose **Connect to a remote server**, and scan
-the QR code or paste the pairing code. A successful connection is saved and reconnects
-automatically.
+```bash
+aeloon-runtime-server run --host runtime.example.com
+```
 
-For a short step-by-step guide covering public/private hosts, CA certificates, pairing, upgrades,
-status checks, and removal, see [Remote deployment](docs/remote-deployment.md).
+Then install Desktop with the same local command, choose **Connect to a remote server**, and paste
+the pairing code. A successful connection is saved and reconnects automatically.
+
+For a short step-by-step guide covering keeping it running with systemd, CA certificates, pairing,
+upgrades, team hosts, and removal, see [Remote deployment](docs/remote-deployment.md).
 
 Aeloon is a set of Agents that work like colleagues, each with one conversation and its own
 desk. See [Colleagues and conversations](docs/colleagues.md).
@@ -79,18 +81,18 @@ The same two steps in PowerShell:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall.ps1))) -Yes -PurgeData
 ```
 
-Remove the Remote Runtime service and managed releases while preserving Runtime data:
+Remove the Remote Runtime releases, links, and user service while preserving Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
-  | sudo sh -s -- --yes
+  | sh -s -- --yes
 ```
 
-Also delete private Runtime data under `/var/lib/aeloon-lite`:
+Also delete private Runtime data under `~/.aeloon-lite`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
-  | sudo sh -s -- --yes --purge-data
+  | sh -s -- --yes --purge-data
 ```
 
 Use `--help` on any script for all options. Release procedure and recovery details are in
