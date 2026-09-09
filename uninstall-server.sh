@@ -7,7 +7,7 @@ INSTALL_ROOT="/opt/aeloon-runtime"
 STATE_FILE="/etc/aeloon-runtime/install.json"
 UNIT_FILE="/etc/systemd/system/aeloon-runtime.service"
 MANAGEMENT_LINK="/usr/local/bin/aeloon-runtime-server"
-DATA_ROOT="/var/lib/aeloon-runtime"
+DATA_ROOT="/var/lib/aeloon-lite"
 
 usage() {
   cat <<'EOF'

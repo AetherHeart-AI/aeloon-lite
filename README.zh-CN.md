@@ -84,7 +84,7 @@ curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uni
   | sudo sh -s -- --yes
 ```
 
-同时删除 `/var/lib/aeloon-runtime` 下的私有 Runtime 数据：
+同时删除 `/var/lib/aeloon-lite` 下的私有 Runtime 数据：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \

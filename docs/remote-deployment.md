@@ -153,21 +153,21 @@ and selectable while a device is **Offline**; selecting one starts a normal reco
 
 ## 8. Uninstall
 
-Remove the service and managed releases while preserving Runtime data and the workspace:
+Remove the service and managed releases while preserving Runtime data:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes
 ```
 
-Also remove private Runtime data under `/var/lib/aeloon-runtime`:
+Also remove private Runtime data under `/var/lib/aeloon-lite`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/uninstall-server.sh \
   | sudo sh -s -- --yes --purge-data
 ```
 
-The configured workspace is always preserved.
+Every colleague's desk lives inside that data directory, so `--purge-data` removes them too.
 
 ## Quick troubleshooting
 
