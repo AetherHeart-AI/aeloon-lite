@@ -14,6 +14,10 @@ on:
         description: Stable semantic version to publish or replay
         required: true
         type: string
+      client_release:
+        description: Existing public Desktop release to reuse for a compatible Runtime server release
+        required: false
+        type: string
       candidate_run_id:
         description: Successful Desktop candidate run ID (required for a new Desktop Release)
         required: false
@@ -234,7 +238,7 @@ jobs:
             --summary-zh "$SUMMARY_ZH" --summary-en "$SUMMARY_EN" \
             --asset-dir "$ASSET_DIR"
 
-      - name: Publish public Runtime assets for SSH deployment
+      - name: Publish public Runtime and compatible web assets
         if: steps.source.outputs.product == 'runtime'
         shell: bash
         env:
@@ -242,6 +246,7 @@ jobs:
           ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
           VERSION: ${{ steps.source.outputs.version }}
           SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+          CLIENT_RELEASE: ${{ github.event.client_payload.client_release || inputs.client_release }}
         run: |
           set -euo pipefail
           tag="runtime-v$VERSION"
@@ -257,6 +262,41 @@ jobs:
             aeloon-runtime-linux-x86_64.tar.zst
             aeloon-runtime-windows-x86_64.tar.zst
           )
+          # A server-only update may carry the exact existing shared client, never rebuild it.
+          # Require an explicit release and an unchanged protocol before pairing these assets.
+          if [[ -n "$CLIENT_RELEASE" ]]; then
+            [[ "$CLIENT_RELEASE" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            client_json="$RUNNER_TEMP/client-source.json"
+            gh release view "$CLIENT_RELEASE" --repo AetherHeart-AI/aeloon-lite \
+              --json isDraft,isPrerelease,assets > "$client_json"
+            jq -e '.isDraft == false and .isPrerelease == false' "$client_json" >/dev/null
+            client_name="aeloon-client-${CLIENT_RELEASE#v}.tar.gz"
+            client_commit="$(gh api "repos/AetherHeart-AI/aeloon-lite-ui/commits/$CLIENT_RELEASE" --jq .sha)"
+            gh api "repos/AetherHeart-AI/aeloon-lite-ui/contents/runtime-bundle.lock.json?ref=$client_commit" \
+              --jq .content | base64 --decode > "$RUNNER_TEMP/client-runtime-lock.json"
+            paired_runtime="$(jq -r .runtime.commit "$RUNNER_TEMP/client-runtime-lock.json")"
+            [[ "$paired_runtime" =~ ^[0-9a-f]{40}$ ]]
+            for identity in "$paired_runtime" "$SOURCE_COMMIT"; do
+              gh api "repos/AetherHeart-AI/aeloon-lite-runtime/contents/aeloon_runtime/rpc/aeloon-rpc.manifest.json?ref=$identity" \
+                --jq .content | base64 --decode > "$RUNNER_TEMP/protocol-$identity.json"
+            done
+            cmp "$RUNNER_TEMP/protocol-$paired_runtime.json" "$RUNNER_TEMP/protocol-$SOURCE_COMMIT.json" || {
+              echo "Protocol changed; publish a newly validated Desktop/client pair." >&2; exit 1;
+            }
+            gh release download "$CLIENT_RELEASE" --repo AetherHeart-AI/aeloon-lite \
+              --pattern "$client_name" --dir "$asset_dir"
+            digest="$(jq -er --arg name "$client_name" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("client missing or ambiguous") end' "$client_json")"
+            [[ "$digest" == "sha256:$(sha256sum "$asset_dir/$client_name" | cut -d ' ' -f1)" ]]
+            expected+=("$client_name")
+          fi
+          # Verify source archive bytes before public upload as well as their exact names.
+          gh release view "$tag" --repo AetherHeart-AI/aeloon-lite-runtime \
+            --json assets > "$RUNNER_TEMP/runtime-source.json"
+          for path in "$asset_dir"/aeloon-runtime-*.tar.*; do
+            name="$(basename "$path")"
+            digest="$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .digest' "$RUNNER_TEMP/runtime-source.json")"
+            [[ "$digest" == "sha256:$(sha256sum "$path" | cut -d ' ' -f1)" ]]
+          done
           mapfile -t actual < <(find "$asset_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
           [[ "${actual[*]}" == "${wanted[*]}" ]]
@@ -297,7 +337,7 @@ jobs:
             cat <<EOF
           ## 中文
 
-          Runtime \`$VERSION\` 的公开 SSH 部署资产。
+          Runtime \`$VERSION\` 的公开服务器部署资产。
 
           ### 已完成的公开 Issue
           EOF
@@ -306,7 +346,7 @@ jobs:
 
           ## English
 
-          Public SSH deployment assets for Runtime \`$VERSION\`.
+          Public server deployment assets for Runtime \`$VERSION\`.
 
           ### Resolved public Issues
           EOF
@@ -326,6 +366,14 @@ jobs:
           mapfile -t published < <(gh release view "$tag" --repo AetherHeart-AI/aeloon-lite \
             --json assets --jq '.assets[].name' | sort)
           [[ "${published[*]}" == "${wanted[*]}" ]]
+          gh release view "$tag" --repo AetherHeart-AI/aeloon-lite --json assets > "$RUNNER_TEMP/public-runtime.json"
+          for path in "$asset_dir"/*; do
+            name="$(basename "$path")"
+            digest="$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .digest' "$RUNNER_TEMP/public-runtime.json")"
+            [[ "$digest" == "sha256:$(sha256sum "$path" | cut -d ' ' -f1)" ]] || {
+              echo "Published asset differs; use a new Runtime version." >&2; exit 1;
+            }
+          done
           gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --latest=false
           ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
             --issues "$issues_json" --tag "$tag" \
