@@ -55,6 +55,7 @@ expected=(
   "aeloon-lite-$desktop_version-x86_64.deb"
   "aeloon-lite-$desktop_version-x86_64.rpm"
   "aeloon-lite-$desktop_version-x64.exe"
+  "aeloon-client-$desktop_version.tar.gz"
   "aeloon-runtime-darwin-aarch64.tar.zst"
   "aeloon-runtime-linux-aarch64.tar.gz"
   "aeloon-runtime-linux-aarch64.tar.zst"

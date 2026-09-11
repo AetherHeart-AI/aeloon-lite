@@ -29,7 +29,7 @@ done
   echo "Aeloon Runtime server installation supports Linux hosts only." >&2
   exit 2
 }
-for required_command in awk curl grep sed tar; do
+for required_command in awk curl grep sed tar jq sha256sum; do
   command -v "$required_command" >/dev/null 2>&1 || {
     echo "Required command is unavailable: $required_command" >&2
     exit 2
@@ -114,7 +114,7 @@ else
 fi
 
 RELEASES_ROOT="$PREFIX/releases"
-RELEASE_ROOT="$RELEASES_ROOT/$VERSION"
+RELEASE_ROOT="$RELEASES_ROOT/$TAG"
 CURRENT_LINK="$PREFIX/current"
 SERVER_COMMAND="$BIN_DIR/aeloon-runtime-server"
 
@@ -125,37 +125,28 @@ print_next_steps() {
   esac
   cat <<EOF
 
-Start the Runtime; the first start prints a one-time pairing code for Desktop:
+Create the first administrator in a NEW data directory:
 
-  $SERVER_COMMAND run --host <public DNS name or IPv4 address of this server>
+  $SERVER_COMMAND account init --data-dir ~/.aeloon-server-accounts
 
-Allow inbound TCP 7420 in the host firewall and in any cloud security group.
+The certificate must cover the IP or domain clients visit, and be trusted by
+those clients (a public CA or an installed internal CA). Certificate issuance,
+renewal, replacement and service restart belong to your deployment tools.
 
-To keep it running after you log out, make it a systemd user service:
+Run the matching Runtime and browser client:
 
-  mkdir -p ~/.config/systemd/user
-  cat > ~/.config/systemd/user/aeloon-runtime.service <<'UNIT'
-  [Unit]
-  Description=Aeloon Runtime
-  Wants=network-online.target
-  After=network-online.target
+  $SERVER_COMMAND run --host <IP-or-domain> --port 7420 \
+    --data-dir ~/.aeloon-server-accounts --client-dir $CURRENT_LINK/client \
+    --tls-cert <fullchain.pem> --tls-key <privkey.pem>
 
-  [Service]
-  Type=notify
-  ExecStart=$CURRENT_LINK/bin/aeloon-runtime-server run --host <host>
-  Restart=on-failure
-  RestartSec=2s
-  WatchdogSec=30s
+Open https://<IP-or-domain>:7420/ or sign in from the matching Desktop release.
+Allow TCP 7420 in the firewall and cloud security group. No service was started.
+For persistence, put this command in a NEW systemd service (Type=simple,
+Restart=on-failure). Do not overwrite an existing deployment or its data.
 
-  [Install]
-  WantedBy=default.target
-  UNIT
-  systemctl --user daemon-reload
-  systemctl --user enable --now aeloon-runtime
-  loginctl enable-linger "\$USER"
-  $SERVER_COMMAND pair
+Password recovery:
+  $SERVER_COMMAND account reset-password --data-dir ~/.aeloon-server-accounts
 
-Logs: journalctl --user -u aeloon-runtime -f
 EOF
 }
 
@@ -163,7 +154,7 @@ INSTALLED_VERSION=""
 if [ -L "$CURRENT_LINK" ]; then
   INSTALLED_VERSION=$(basename "$(readlink "$CURRENT_LINK")")
 fi
-if [ -z "$DOWNLOAD_ONLY" ] && [ "$INSTALLED_VERSION" = "$VERSION" ] && [ -x "$RELEASE_ROOT/bin/aeloon-runtime-server" ]; then
+if [ -z "$DOWNLOAD_ONLY" ] && [ "$INSTALLED_VERSION" = "$TAG" ] && [ -x "$RELEASE_ROOT/bin/aeloon-runtime-server" ] && [ -f "$RELEASE_ROOT/client/index.html" ]; then
   echo "Aeloon Runtime $VERSION is already installed under $PREFIX."
   print_next_steps
   exit 0
@@ -178,8 +169,33 @@ ASSET="aeloon-runtime-linux-${RELEASE_ARCH}.tar.gz"
 ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
+[ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ] || {
+  echo "A matching unified Runtime and client release is required." >&2; exit 2;
+}
+CLIENT_ASSET="aeloon-client-${TAG#v}.tar.gz"
+CLIENT_ARCHIVE="$TEMP_ROOT/$CLIENT_ASSET"
+RELEASE_JSON="$TEMP_ROOT/release.json"
+fetch "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" "$RELEASE_JSON"
+jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$RELEASE_JSON" >/dev/null || {
+  echo "Invalid stable Release identity." >&2; exit 2;
+}
+verify_asset() {
+  expected=$(jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("asset missing or ambiguous") end' "$RELEASE_JSON")
+  printf '%s\n' "$expected" | grep -Eq '^sha256:[a-f0-9]{64}$' || { echo "Release asset digest unavailable." >&2; exit 2; }
+  actual="sha256:$(sha256sum "$2" | awk '{print $1}')"
+  [ "$actual" = "$expected" ] || { echo "Release asset digest mismatch: $1" >&2; exit 2; }
+}
+
 echo "Downloading Aeloon Runtime $VERSION from GitHub..."
 fetch "$ASSET_URL" "$ARCHIVE"
+verify_asset "$ASSET" "$ARCHIVE"
+fetch "https://github.com/$REPOSITORY/releases/download/$TAG/$CLIENT_ASSET" "$CLIENT_ARCHIVE"
+verify_asset "$CLIENT_ASSET" "$CLIENT_ARCHIVE"
+CLIENT_PATHS="$TEMP_ROOT/client-paths"
+tar -tzf "$CLIENT_ARCHIVE" > "$CLIENT_PATHS"
+awk '/^\// {exit 1} /(^|\/)\.\.($|\/)/ {exit 1} !/^client\// {exit 1}' "$CLIENT_PATHS" || {
+  echo "Client archive contains an unsafe path." >&2; exit 2;
+}
 ARCHIVE_PATHS="$TEMP_ROOT/archive-paths"
 tar -tzf "$ARCHIVE" > "$ARCHIVE_PATHS" || { echo "Runtime archive is unreadable." >&2; exit 2; }
 awk '
@@ -191,12 +207,14 @@ awk '
 if [ -n "$DOWNLOAD_ONLY" ]; then
   mkdir -p "$DOWNLOAD_ONLY"
   cp "$ARCHIVE" "$DOWNLOAD_ONLY/$ASSET"
+  cp "$CLIENT_ARCHIVE" "$DOWNLOAD_ONLY/$CLIENT_ASSET"
+  cp "$RELEASE_JSON" "$DOWNLOAD_ONLY/release.json"
   echo "Downloaded Runtime archive: $DOWNLOAD_ONLY/$ASSET"
   exit 0
 fi
 
 mkdir -p "$RELEASES_ROOT" "$BIN_DIR"
-STAGING="$RELEASES_ROOT/.$VERSION.$$"
+STAGING="$RELEASES_ROOT/.$TAG.$$"
 mkdir -p "$STAGING"
 tar -xzf "$ARCHIVE" -C "$STAGING"
 for name in aeloon-runtime aeloon-runtime-server; do
@@ -205,7 +223,10 @@ for name in aeloon-runtime aeloon-runtime-server; do
     exit 2
   }
 done
-rm -rf "$RELEASE_ROOT"
+tar -xzf "$CLIENT_ARCHIVE" -C "$STAGING/aeloon-runtime"
+[ -f "$STAGING/aeloon-runtime/client/index.html" ] || { echo "Client index is missing." >&2; exit 2; }
+[ ! -e "$RELEASE_ROOT" ] || { echo "Release directory already exists; refusing to replace it: $RELEASE_ROOT" >&2; exit 2; }
+cp "$RELEASE_JSON" "$STAGING/aeloon-runtime/release.json"
 mv "$STAGING/aeloon-runtime" "$RELEASE_ROOT"
 rmdir "$STAGING"
 STAGING=""
@@ -217,7 +238,7 @@ done
 
 if [ -n "$INSTALLED_VERSION" ]; then
   echo "Upgraded Aeloon Runtime $INSTALLED_VERSION to $VERSION (source commit $SOURCE_COMMIT) under $PREFIX."
-  echo "Restart the Runtime to run the new version; its data under ~/.aeloon-lite is untouched."
+  echo "Existing services and data were preserved. Start this release with a new data directory and service."
   echo "The old release stays in $RELEASES_ROOT; delete it when you no longer need it."
 else
   echo "Installed Aeloon Runtime $VERSION (source commit $SOURCE_COMMIT) under $PREFIX."

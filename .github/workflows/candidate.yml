@@ -61,6 +61,7 @@ jobs:
             "aeloon-lite-$version-x86_64.deb"
             "aeloon-lite-$version-x86_64.rpm"
             "aeloon-lite-$version-x64.exe"
+            "aeloon-client-$version.tar.gz"
           )
           case "$platform" in
             all) selected=("${expected[@]}") ;;

@@ -1,11 +1,12 @@
 # Unified stable release operations / 统一稳定版发布流程
 
 Desktop and Runtime source repositories build independently. Public distribution is Desktop-versioned:
-one `vX.Y.Z` Release contains six Desktop installers and the six Runtime archives pinned by that
-Desktop commit. Both stable metadata files point to that same tag and contain no artifact hashes.
+one `vX.Y.Z` Release contains six Desktop installers, the shared `aeloon-client-X.Y.Z.tar.gz`,
+and the six Runtime archives pinned by that Desktop commit. Both stable metadata files point to that same tag and contain no artifact hashes.
 
 Desktop 与 Runtime 源仓库独立构建。公开分发统一使用 Desktop 版本号：每个 `vX.Y.Z`
-Release 同时包含 6 个 Desktop 安装包，以及该 Desktop commit 锁定的 6 个 Runtime 包。
+Release 同时包含 6 个 Desktop 安装包、同一构建产生的 `aeloon-client-X.Y.Z.tar.gz`，
+以及该 Desktop commit 锁定的 6 个 Runtime 包。
 两份 stable 元数据同时指向该 tag，不包含产物哈希。
 
 ## Candidate and release flow / 候选版与正式版流程
@@ -15,7 +16,7 @@ Release 同时包含 6 个 Desktop 安装包，以及该 Desktop commit 锁定�
 2. Distribution validates the Runtime source tag and asset names, then dispatches the Desktop
    Runtime-lock workflow. That PR pins Runtime version, source commit, URLs, and protocol types.
 3. After the lock PR merges, Desktop bumps its version and runs `desktop-release.yml`. Its immutable
-   source Release contains the fixed six Desktop assets and dispatches `publish-desktop`.
+   source Release contains the six Desktop installers plus the single shared client archive and dispatches `publish-desktop`.
 4. `candidate.yml` handles that dispatch. It verifies the source tag and digests, then uploads a
    seven-day, all-platform Actions artifact. A manual run may instead select only macOS arm64,
    Linux arm64, Linux x86_64, or Windows x64 for focused testing. No candidate creates a tag or Release or can
@@ -101,3 +102,8 @@ Desktop version. Rollback restores both stable files to the same older unified t
 Runtime 重放只会重新触发 Desktop 锁更新。Desktop 候选产物过期后，可针对同一不可变源
 版本重跑 `candidate.yml`，但必须重新验收新的候选运行后才能正式发布。已公开资产不可覆盖，
 资产集变化必须提升 Desktop 版本；回滚仍通过普通 PR 恢复两份 stable 文件。
+
+The Desktop workflow builds `dist/client` once and shares it with every platform packaging job and
+server archive. Server installation verifies both archives against GitHub Release asset digests and
+installs a matching pair; it never starts, switches or upgrades an existing service. Acceptance uses a
+fresh explicit data directory and separate service/port, with a certificate trusted for its address.

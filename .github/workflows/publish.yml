@@ -99,6 +99,7 @@ jobs:
                 "aeloon-lite-$version-x86_64.deb"
                 "aeloon-lite-$version-x86_64.rpm"
                 "aeloon-lite-$version-x64.exe"
+                "aeloon-client-$version.tar.gz"
               )
               ;;
             *) echo "Invalid product: $product" >&2; exit 2 ;;
@@ -164,6 +165,7 @@ jobs:
             "aeloon-lite-$DESKTOP_VERSION-x86_64.deb"
             "aeloon-lite-$DESKTOP_VERSION-x86_64.rpm"
             "aeloon-lite-$DESKTOP_VERSION-x64.exe"
+            "aeloon-client-$DESKTOP_VERSION.tar.gz"
           )
           mapfile -t candidate_names < <(jq -r '.assets[].name' "$candidate_manifest" | sort)
           mapfile -t wanted_desktop < <(printf '%s\n' "${expected_desktop[@]}" | sort)
