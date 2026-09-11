@@ -2,12 +2,14 @@
 
 Desktop and Runtime source repositories build independently. Public distribution is Desktop-versioned:
 one `vX.Y.Z` Release contains six Desktop installers, the shared `aeloon-client-X.Y.Z.tar.gz`,
-and the six Runtime archives pinned by that Desktop commit. Both stable metadata files point to that same tag and contain no artifact hashes.
+and the six Runtime archives pinned by that Desktop commit. Unified releases update both stable metadata files. A compatible server-only release may advance
+Runtime stable independently; metadata contains no artifact hashes.
 
 Desktop 与 Runtime 源仓库独立构建。公开分发统一使用 Desktop 版本号：每个 `vX.Y.Z`
 Release 同时包含 6 个 Desktop 安装包、同一构建产生的 `aeloon-client-X.Y.Z.tar.gz`，
 以及该 Desktop commit 锁定的 6 个 Runtime 包。
-两份 stable 元数据同时指向该 tag，不包含产物哈希。
+统一发布时两份 stable 元数据同时指向该 tag。兼容的服务器独立发布可单独推进 Runtime stable，
+Desktop stable 保持原版本；元数据不包含产物哈希。
 
 ## Candidate and release flow / 候选版与正式版流程
 
@@ -94,14 +96,34 @@ gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
   -f summary_en='Official release summary.'
 ```
 
-A Runtime replay only re-sends the Desktop lock update. If a Desktop candidate expires, rerun
-`candidate.yml` for the same immutable source version and test the new candidate run before official
-publication. Published public assets are never overwritten; a different asset set requires a new
-Desktop version. Rollback restores both stable files to the same older unified tag through a normal PR.
+For a server-only update, run the Runtime source release workflow with `client_release=vX.Y.Z`,
+selecting an existing public Desktop release. Distribution compares the generated RPC manifests
+against the Runtime originally paired with that client, verifies all source asset digests, and copies
+the exact existing client archive into the new public `runtime-v<version>` release alongside the six
+Runtime archives. No new client build or Desktop version is created. The manifest check is a protocol
+guard, not a substitute for browser/Desktop compatibility acceptance. Without this explicit input,
+the original Runtime-only six-asset publication remains available for subsequent Desktop builds.
 
-Runtime 重放只会重新触发 Desktop 锁更新。Desktop 候选产物过期后，可针对同一不可变源
-版本重跑 `candidate.yml`，但必须重新验收新的候选运行后才能正式发布。已公开资产不可覆盖，
-资产集变化必须提升 Desktop 版本；回滚仍通过普通 PR 恢复两份 stable 文件。
+For replay of a paired server release, supply the same `client_release`:
+
+```sh
+gh workflow run publish.yml --repo AetherHeart-AI/aeloon-lite \
+  -f product=runtime -f version=0.4.1 -f client_release=v0.3.0
+```
+
+After the server pair passes acceptance, update only `channels/runtime/stable` through a checked PR:
+keep schema v2, set the new Runtime version, `release=runtime-v<version>`, and its source commit.
+The installer identifies the single client archive in that Release and verifies both downloads.
+Desktop stable remains unchanged; the automated Desktop Runtime-lock PR prepares a future build but
+does not publish one. Published asset names and bytes are immutable, including on replay. An old
+six-asset release cannot be expanded in place. Roll back the affected stable metadata through a PR;
+existing services stay pinned until an operator explicitly changes them.
+
+服务器独立发布时，在 Runtime 构建工作流传入 `client_release=vX.Y.Z`，复用已有公开网页包。
+发行流程校验协议清单一致和源文件摘要，把原网页包与新 Runtime 包发布到同一个
+`runtime-v<版本>` Release。验收通过后仅通过受检查的 PR 更新 Runtime stable；Desktop
+无需重新发版。重放必须传入相同网页版本，不能覆盖已发布文件或为旧 Release 追加产物。
+候选过期时仍需重新验证 Desktop 候选，统一 Desktop 发布继续沿用上述流程。
 
 The Desktop workflow builds `dist/client` once and shares it with every platform packaging job and
 server archive. Server installation verifies both archives against GitHub Release asset digests and

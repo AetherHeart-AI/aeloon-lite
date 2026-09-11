@@ -137,6 +137,36 @@ class InstallerTests(unittest.TestCase):
             b"runtime-fixture",
         )
 
+    def test_runtime_patch_release_reuses_existing_client_version(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        channel = Path(fixture["channel"])
+        channel.write_text(channel.read_text().replace("release=v9.9.9", "release=runtime-v1.2.3"))
+        metadata = Path(fixture["release"])
+        value = json.loads(metadata.read_text())
+        value["tag_name"] = "runtime-v1.2.3"
+        metadata.write_text(json.dumps(value))
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True, text=True, env=fixture["env"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        requests = Path(fixture["curl_log"]).read_text()
+        self.assertIn("runtime-v1.2.3/aeloon-client-9.9.9.tar.gz", requests)
+        self.assertIn("runtime-v1.2.3/aeloon-runtime-linux-x86_64.tar.gz", requests)
+
+    def test_runtime_refuses_ambiguous_client_pair(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        metadata = Path(fixture["release"])
+        value = json.loads(metadata.read_text())
+        value["assets"].append({"name": "aeloon-client-9.9.8.tar.gz", "digest": "sha256:" + "a" * 64})
+        metadata.write_text(json.dumps(value))
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True, text=True, env=fixture["env"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(Path(fixture["curl_log"]).exists())
+
     def test_desktop_installed_action_can_skip_without_downloading_artifact(self) -> None:
         fixture = self._fixture("desktop", b"desktop-fixture")
         tools = fixture["tools"]
@@ -241,9 +271,9 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual((home / ".local/bin" / name).readlink(), prefix / "current/bin" / name)
         self.assertIn("Installed Aeloon Runtime 1.2.3", result.stdout)
         self.assertIn(f"Add {home}/.local/bin to your PATH", result.stdout)
-        self.assertIn(f"{home}/.local/bin/aeloon-runtime-server run --host", result.stdout)
+        self.assertIn(f"{home}/.local/bin/aeloon-runtime-server run", result.stdout)
         self.assertIn("NEW systemd service", result.stdout)
-        self.assertIn("account init --data-dir", result.stdout)
+        self.assertIn("aeloon-runtime-server init", result.stdout)
         self.assertTrue((release / "client/index.html").is_file())
         self.assertNotIn("sudo", result.stdout)
         # Nothing was started and nothing was written outside the two directories.
@@ -260,7 +290,7 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("1.2.3 is already installed", again.stdout)
-        self.assertIn("run --host", again.stdout)
+        self.assertIn("aeloon-runtime-server run", again.stdout)
         self.assertFalse(Path(fixture["curl_log"]).exists())
 
         # A newer stable version lands beside the old one and takes over the links.
@@ -544,7 +574,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(lines[0], "# aeloon-release-v2")
             self.assertEqual(lines[1], f"# product={product}")
             self.assertRegex(lines[2], r"^# version=\d+\.\d+\.\d+$")
-            self.assertRegex(lines[3], r"^# release=v\d+\.\d+\.\d+$")
+            self.assertRegex(lines[3], r"^# release=(runtime-)?v\d+\.\d+\.\d+$")
             self.assertRegex(lines[4], rf"^# source={re.escape(repository)}@[0-9a-f]{{40}}$")
             self.assertEqual(len(lines), 5)
 
@@ -623,7 +653,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("sha256sum", workflow)
         self.assertIn("runtime-bundle.lock.json", workflow)
         self.assertIn("tools/publish_release.sh", workflow)
-        self.assertIn("Publish public Runtime assets for SSH deployment", workflow)
+        self.assertIn("Publish public Runtime and compatible web assets", workflow)
         self.assertIn("--repo AetherHeart-AI/aeloon-lite --draft=false --latest=false", workflow)
         self.assertIn("GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}", workflow)
         self.assertIn("actions/create-github-app-token@", workflow)

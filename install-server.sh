@@ -104,9 +104,9 @@ printf '%s\n' "$SOURCE" | LC_ALL=C grep -Eq '^AetherHeart-AI/aeloon-lite-runtime
 }
 SOURCE_COMMIT=${SOURCE#*@}
 if [ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ]; then
-  TAG=$(metadata_value "$CHANNEL_FILE" release) || { echo "Invalid unified release metadata." >&2; exit 2; }
-  printf '%s\n' "$TAG" | LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
-    echo "Unified release tag is invalid." >&2
+  TAG=$(metadata_value "$CHANNEL_FILE" release) || { echo "Invalid Runtime release metadata." >&2; exit 2; }
+  printf '%s\n' "$TAG" | LC_ALL=C grep -Eq '^(runtime-)?v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+    echo "Runtime release tag is invalid." >&2
     exit 2
   }
 else
@@ -125,27 +125,31 @@ print_next_steps() {
   esac
   cat <<EOF
 
-Create the first administrator in a NEW data directory:
+Initialize deployment settings and the first administrator (interactive):
 
-  $SERVER_COMMAND account init --data-dir ~/.aeloon-server-accounts
+  $SERVER_COMMAND init
 
-The certificate must cover the IP or domain clients visit, and be trusted by
-those clients (a public CA or an installed internal CA). Certificate issuance,
-renewal, replacement and service restart belong to your deployment tools.
+The default data directory is ~/.aeloon-lite. An incompatible existing directory
+is refused; use init --data-dir <new-directory> and the same option with run.
+Enter the certificate-covered IP or domain once. Settings are saved in server.json.
+Install a trusted certificate chain and private key at:
+  ~/.aeloon-lite/tls/fullchain.pem
+  ~/.aeloon-lite/tls/privkey.pem
+Or save your certificate tool's paths with init --tls-cert <path> --tls-key <path>.
+Certificate issuance, renewal and service restart belong to your deployment tools.
 
-Run the matching Runtime and browser client:
+Start with saved settings and the automatically located matching web client:
 
-  $SERVER_COMMAND run --host <IP-or-domain> --port 7420 \
-    --data-dir ~/.aeloon-server-accounts --client-dir $CURRENT_LINK/client \
-    --tls-cert <fullchain.pem> --tls-key <privkey.pem>
+  $SERVER_COMMAND run
 
-Open https://<IP-or-domain>:7420/ or sign in from the matching Desktop release.
+The default listener is 0.0.0.0:7420. Open https://<IP-or-domain>:7420/.
 Allow TCP 7420 in the firewall and cloud security group. No service was started.
-For persistence, put this command in a NEW systemd service (Type=simple,
-Restart=on-failure). Do not overwrite an existing deployment or its data.
+For persistence, create a NEW systemd service (Type=simple, Restart=on-failure)
+using $RELEASE_ROOT/bin/aeloon-runtime-server run and the service user's data directory.
+This pins both Runtime and web client. Existing deployments and data are preserved.
 
 Password recovery:
-  $SERVER_COMMAND account reset-password --data-dir ~/.aeloon-server-accounts
+  $SERVER_COMMAND account reset-password
 
 EOF
 }
@@ -170,15 +174,15 @@ ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
 [ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ] || {
-  echo "A matching unified Runtime and client release is required." >&2; exit 2;
+  echo "A matching Runtime and client release is required." >&2; exit 2;
 }
-CLIENT_ASSET="aeloon-client-${TAG#v}.tar.gz"
-CLIENT_ARCHIVE="$TEMP_ROOT/$CLIENT_ASSET"
 RELEASE_JSON="$TEMP_ROOT/release.json"
 fetch "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" "$RELEASE_JSON"
 jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$RELEASE_JSON" >/dev/null || {
   echo "Invalid stable Release identity." >&2; exit 2;
 }
+CLIENT_ASSET=$(jq -er '[.assets[].name | select(test("^aeloon-client-[0-9]+\\.[0-9]+\\.[0-9]+\\.tar\\.gz$"))] | if length == 1 then .[0] else error("matching client asset missing or ambiguous") end' "$RELEASE_JSON")
+CLIENT_ARCHIVE="$TEMP_ROOT/$CLIENT_ASSET"
 verify_asset() {
   expected=$(jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("asset missing or ambiguous") end' "$RELEASE_JSON")
   printf '%s\n' "$expected" | grep -Eq '^sha256:[a-f0-9]{64}$' || { echo "Release asset digest unavailable." >&2; exit 2; }
