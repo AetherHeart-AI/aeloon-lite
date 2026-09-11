@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import hashlib
 import re
 import shutil
 import subprocess
@@ -16,14 +18,20 @@ ROOT = Path(__file__).parents[1]
 FAKE_RUNTIME_TAR = """#!/bin/sh
 case " $* " in
   *" -tzf "*)
-    printf 'aeloon-runtime/bin/aeloon-runtime\\naeloon-runtime/bin/aeloon-runtime-server\\n'
+    case "$*" in
+      *aeloon-client*) printf 'client/index.html\\n' ;;
+      *) printf 'aeloon-runtime/bin/aeloon-runtime\\naeloon-runtime/bin/aeloon-runtime-server\\n' ;;
+    esac
     ;;
   *)
+    client_archive=""
+    case "$*" in *aeloon-client*) client_archive=1 ;; esac
     destination=""
     while [ "$#" -gt 0 ]; do
       if [ "$1" = "-C" ]; then destination=$2; break; fi
       shift
     done
+    if [ -n "$client_archive" ]; then mkdir -p "$destination/client"; echo '<!doctype html>' > "$destination/client/index.html"; exit 0; fi
     mkdir -p "$destination/aeloon-runtime/bin"
     for name in aeloon-runtime aeloon-runtime-server; do
       printf '#!/bin/sh\\nexit 0\\n' > "$destination/aeloon-runtime/bin/$name"
@@ -52,7 +60,8 @@ class InstallerTests(unittest.TestCase):
             if name.startswith("install"):
                 self.assertNotIn("--version", source)
                 self.assertNotIn("SHA-256", source)
-                self.assertNotIn("sha256sum", source)
+                if name != "install-server.sh":
+                    self.assertNotIn("sha256sum", source)
                 self.assertNotIn("shasum", source)
 
     def test_windows_scripts_keep_the_same_contract(self) -> None:
@@ -225,7 +234,7 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, f"{result.stderr}\n{result.stdout}")
         prefix = home / ".local/share/aeloon-runtime"
-        release = prefix / "releases/1.2.3"
+        release = prefix / "releases/v9.9.9"
         self.assertTrue((release / "bin/aeloon-runtime-server").is_file())
         self.assertEqual((prefix / "current").readlink(), release)
         for name in ("aeloon-runtime", "aeloon-runtime-server"):
@@ -233,12 +242,9 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("Installed Aeloon Runtime 1.2.3", result.stdout)
         self.assertIn(f"Add {home}/.local/bin to your PATH", result.stdout)
         self.assertIn(f"{home}/.local/bin/aeloon-runtime-server run --host", result.stdout)
-        self.assertIn("systemd user service", result.stdout)
-        self.assertIn(
-            f"ExecStart={prefix}/current/bin/aeloon-runtime-server run --host", result.stdout
-        )
-        self.assertIn("systemctl --user enable --now aeloon-runtime", result.stdout)
-        self.assertIn("loginctl enable-linger", result.stdout)
+        self.assertIn("NEW systemd service", result.stdout)
+        self.assertIn("account init --data-dir", result.stdout)
+        self.assertTrue((release / "client/index.html").is_file())
         self.assertNotIn("sudo", result.stdout)
         # Nothing was started and nothing was written outside the two directories.
         self.assertEqual(sorted(path.name for path in home.iterdir()), [".local"])
@@ -259,7 +265,9 @@ class InstallerTests(unittest.TestCase):
 
         # A newer stable version lands beside the old one and takes over the links.
         channel = Path(fixture["channel"])
-        channel.write_text(channel.read_text().replace("version=1.2.3", "version=1.3.0"))
+        channel.write_text(channel.read_text().replace("version=1.2.3", "version=1.3.0").replace("release=v9.9.9", "release=v9.9.10"))
+        metadata = Path(fixture["release"])
+        metadata.write_text(metadata.read_text().replace("9.9.9", "9.9.10"))
         upgraded = subprocess.run(
             ["sh", str(ROOT / "install-server.sh")],
             capture_output=True,
@@ -268,10 +276,32 @@ class InstallerTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(upgraded.returncode, 0, f"{upgraded.stderr}\n{upgraded.stdout}")
-        self.assertIn("Upgraded Aeloon Runtime 1.2.3 to 1.3.0", upgraded.stdout)
-        self.assertIn("Restart the Runtime", upgraded.stdout)
-        self.assertEqual((prefix / "current").readlink(), prefix / "releases/1.3.0")
+        self.assertIn("Upgraded Aeloon Runtime v9.9.9 to 1.3.0", upgraded.stdout)
+        self.assertIn("Existing services and data were preserved", upgraded.stdout)
+        self.assertEqual((prefix / "current").readlink(), prefix / "releases/v9.9.10")
         self.assertTrue((release / "bin/aeloon-runtime-server").is_file())
+
+    def test_client_digest_failure_preserves_existing_installation(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        tools = Path(fixture["tools"])
+        home = tools.parent / "home"
+        prefix = home / ".local/share/aeloon-runtime"
+        old = prefix / "releases/old"
+        old.mkdir(parents=True)
+        (old / "preserved").write_text("existing deployment")
+        (prefix / "current").symlink_to(old)
+        metadata = Path(fixture["release"])
+        value = json.loads(metadata.read_text())
+        value["assets"][1]["digest"] = "sha256:" + "0" * 64
+        metadata.write_text(json.dumps(value))
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh")], capture_output=True, text=True,
+            env={**fixture["env"], "HOME": str(home), "PATH": f"{tools}:/usr/bin:/bin"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((prefix / "current").readlink(), old)
+        self.assertEqual((old / "preserved").read_text(), "existing deployment")
+        self.assertFalse((prefix / "releases/v9.9.9").exists())
 
     def test_runtime_install_refuses_to_replace_a_real_file_with_a_link(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
@@ -681,7 +711,19 @@ class InstallerTests(unittest.TestCase):
             '#!/bin/sh\n[ -z "${FIXTURE_INSTALL_LOG:-}" ] || printf \'%s\\n\' "$*" >> "$FIXTURE_INSTALL_LOG"\nexit 0\n',
         )
         write_executable(tools / "dnf", "#!/bin/sh\nexit 0\n")
-        write_executable(tools / "tar", "#!/bin/sh\necho aeloon-runtime/bin/aeloon-runtime\n")
+        write_executable(tools / "tar", FAKE_RUNTIME_TAR)
+        real_jq = shutil.which("jq")
+        self.assertIsNotNone(real_jq)
+        (tools / "jq").symlink_to(real_jq)
+        digest_tool = shutil.which("sha256sum")
+        if digest_tool:
+            (tools / "sha256sum").symlink_to(digest_tool)
+        else:
+            write_executable(tools / "sha256sum", '#!/bin/sh\nexec /usr/bin/shasum -a 256 "$@"\n')
+        release = root / "release.json"
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        release.write_text(json.dumps({"tag_name":"v9.9.9", "draft":False, "prerelease":False,
+            "assets":[{"name":name,"digest":digest},{"name":"aeloon-client-9.9.9.tar.gz","digest":digest}]}))
         write_executable(
             tools / "curl",
             """#!/bin/sh
@@ -701,6 +743,7 @@ case "$url" in
     cp "$FIXTURE_INSTALLER" "$output"
     ;;
   *raw.githubusercontent.com*) cp "$FIXTURE_CHANNEL" "$output" ;;
+  *api.github.com*) cp "$FIXTURE_RELEASE" "$output" ;;
   *)
     [ -z "${FIXTURE_CURL_LOG:-}" ] || printf '%s\n' "$url" >> "$FIXTURE_CURL_LOG"
     cp "$FIXTURE_ARTIFACT" "$output"
@@ -717,12 +760,14 @@ esac
             "AELOON_UI_OS_RELEASE_FILE": str(os_release_path),
             "FIXTURE_CHANNEL": str(channel),
             "FIXTURE_ARTIFACT": str(artifact),
+            "FIXTURE_RELEASE": str(release),
             "FIXTURE_CURL_LOG": str(curl_log),
             "FIXTURE_INSTALL_LOG": str(install_log),
             "FIXTURE_INSTALLER": str(ROOT / "install-server.sh"),
         }
         return {
             "downloads": downloads,
+            "release": release,
             "env": env,
             "channel": channel,
             "tools": tools,
