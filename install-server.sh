@@ -123,6 +123,19 @@ print_next_steps() {
     *":$BIN_DIR:"*) ;;
     *) echo "Add $BIN_DIR to your PATH, or call the commands by their full path." ;;
   esac
+  # Older stable releases remain installable until the server channel is promoted.
+  if ! "$RELEASE_ROOT/bin/aeloon-runtime-server" init --help >/dev/null 2>&1; then
+    cat <<EOF
+
+This Runtime uses explicit deployment options:
+  $SERVER_COMMAND account init --data-dir <new-data-directory>
+  $SERVER_COMMAND run --host <IP-or-domain> --data-dir <new-data-directory> \
+    --client-dir $RELEASE_ROOT/client --tls-cert <fullchain.pem> --tls-key <privkey.pem>
+Use a trusted certificate covering the access address and allow TCP 7420.
+No service was started. Preserve existing services and data.
+EOF
+    return
+  fi
   cat <<EOF
 
 Initialize deployment settings and the first administrator (interactive):

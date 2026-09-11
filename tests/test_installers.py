@@ -311,6 +311,25 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((prefix / "current").readlink(), prefix / "releases/v9.9.10")
         self.assertTrue((release / "bin/aeloon-runtime-server").is_file())
 
+    def test_older_runtime_prints_compatible_setup_instructions(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        tools = Path(fixture["tools"])
+        home = tools.parent / "home"
+        release = home / ".local/share/aeloon-runtime/releases/v9.9.9"
+        (release / "bin").mkdir(parents=True)
+        (release / "client").mkdir()
+        (release / "client/index.html").write_text("old client")
+        write_executable(release / "bin/aeloon-runtime-server", "#!/bin/sh\nexit 2\n")
+        (release.parents[1] / "current").symlink_to(release)
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh")], capture_output=True, text=True,
+            env={**fixture["env"], "HOME": str(home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("account init --data-dir", result.stdout)
+        self.assertIn("run --host", result.stdout)
+        self.assertFalse(Path(fixture["curl_log"]).exists())
+
     def test_client_digest_failure_preserves_existing_installation(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
         tools = Path(fixture["tools"])
