@@ -1,6 +1,6 @@
 ---
 name: aeloon-issue-flow
-description: "Handle a user-visible Aeloon feature or bug end to end across the distribution, Runtime, and UI repositories: find or create the public parent Issue, synchronize native sub-issues, implement and test the change, merge green PRs, clean branches, and synchronize local checkouts. Use when a user requests an Aeloon product behavior change or asks to process an AetherHeart-AI/aeloon-lite Issue. Do not use for internal-only maintenance or ordinary GitHub Issue authoring outside this three-repository flow."
+description: "Implement user-visible Aeloon features and fixes through public Issues, repository PRs, CI, and merge. Use for implementation or explicit Issue processing, not planning, review, internal maintenance, or standalone Issue authoring."
 ---
 
 # Aeloon Change Flow
@@ -8,6 +8,20 @@ description: "Handle a user-visible Aeloon feature or bug end to end across the 
 Treat `AetherHeart-AI/aeloon-lite` as the only public Issue and public Release source. Treat
 `aeloon-lite-ui` and `aeloon-lite-runtime` implementation details as private. Execute this workflow
 without asking the user for approval at intermediate stages.
+
+## Match the Requested Outcome
+
+Enter this workflow when the user asks to implement a product feature or fix, or to take a public
+Issue through implementation. Discussion, planning, and review requests end with their requested
+analysis; they do not trigger Issue creation, code changes, or PR submission. Internal maintenance
+and standalone Issue authoring keep their own scope.
+
+Infer the user-visible result, affected repositories, acceptance criteria, and delivery endpoint
+from the request and existing context. Explicit user limits take precedence over the default
+end-to-end workflow. Resolve routine implementation choices and continue through the authorized
+endpoint; ask only when missing information would materially change the outcome. A request to
+submit a PR ends with a reviewable PR and its actual CI status unless merging was also authorized.
+Release and post-merge cleanup apply only when the requested endpoint includes them.
 
 ## Establish the Public Parent
 
@@ -29,8 +43,9 @@ workspace. Make source changes only in these canonical checkouts. Do not create 
 clone, or source copy, and do not implement code under `/tmp` or another temporary directory.
 
 Before editing an affected repository, fetch and prune `origin`, then ensure the implementation branch
-starts from current `origin/main` or a commit newer than it. Preserve unrelated user changes. If the
-canonical checkout cannot be updated safely because unrelated local changes conflict, stop and report
+starts from current `origin/main` or a commit newer than it. Record existing local changes and
+preserve them; stage only changes belonging to this task. If the canonical checkout cannot be updated
+safely because unrelated local changes conflict, stop and report
 that exact repository as blocked instead of moving the implementation elsewhere.
 
 ## Inspect and Split
@@ -79,7 +94,13 @@ when the UI must ship a newly published Runtime, use a separate internal Runtime
 Runtime Release, and wait for the automated UI Runtime-lock PR to merge before rebasing the UI branch.
 Do not publish a new stable Desktop version unless the user explicitly requested a Desktop release.
 
-Run the repository's relevant local test, lint, generated-artifact, build, and integration checks.
+Start with the affected local checks; add generated-contract, architecture, build, or integration
+checks when the change crosses those boundaries. Before merging, satisfy every required CI check.
+After checks pass, rerun the relevant checks only for new changes, failures, or unresolved concerns.
+For documentation or skill changes, validate content, references, format, and task scope rather
+than running unrelated application suites. Fix failures introduced by the requested change and
+report any independent blocker with its evidence.
+
 Treat secrets as unavailable to renderers, public Issues, PR text, events, errors, logs, and test output.
 
 ## Submit and Merge PRs
@@ -101,14 +122,19 @@ Public-Issue: none
 ```
 
 Push each branch, create its PR, wait for every required GitHub check, and fix failures on the same
-branch. Never merge with a failed or pending required check. Once green, squash merge without asking
-for approval. Preserve the dependency order established above.
+branch. Never merge with a failed or pending required check. If the authorized endpoint includes
+merging, squash merge once green without asking for approval again. Otherwise, report the PR and
+checks at the requested endpoint. Preserve the dependency order established above.
 
 ## Clean Up and Synchronize
 
-After each merge, delete the local and remote feature branch. In every affected canonical checkout,
-switch to `main`, fetch and prune `origin`, and fast-forward to `origin/main`. Remove the temporary plan
-file and verify the working tree is clean and `HEAD` equals `origin/main`.
+After each authorized merge, switch the affected canonical checkout to `main`, fetch and prune
+`origin`, and fast-forward to `origin/main`. Then remove any remaining local and remote feature
+branches belonging to the merged task. Remove the temporary plan file and verify `HEAD` equals
+`origin/main` with no uncommitted task changes. Preserve and report
+any pre-existing user changes; a clean working tree is expected only when it started clean. If those
+changes prevent safe branch cleanup or synchronization, report the exact remaining step without
+discarding them.
 
 Run or wait for the public reconciliation workflow, then verify that every child was closed by its
 merged PR and the public parent is closed as `completed` with `status:implemented`.
