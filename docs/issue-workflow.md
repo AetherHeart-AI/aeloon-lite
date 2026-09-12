@@ -6,10 +6,17 @@ request to at most one work item in each affected repository.
 
 ## Triage and split
 
-For a direct product request, the project-level `aeloon-issue-flow` Skill first searches for an open
+For a request to implement a product feature or fix, the project-level `aeloon-issue-flow` Skill first searches for an open
 matching public Issue and creates one when none exists. New Bug and Feature Issues apply
 `status:needs-triage`. The Skill inspects all three code boundaries, validates a deterministic split
 preview, and then runs `tools/issue_flow.py sync ... --apply` without requesting user confirmation.
+
+Discussion, planning, and review requests end with the requested analysis; they do not enter Issue
+creation, implementation, or PR submission merely because they concern a product feature. Internal
+maintenance and standalone Issue authoring follow their own requested scope. Explicit user limits on
+implementation or delivery take precedence over the workflow's default end-to-end completion.
+When the requested endpoint is a PR, deliver the reviewable PR and its actual CI status. Merge,
+release, and post-merge cleanup apply only when covered by the request or prior authorization.
 
 The applied split adds `status:in-progress` and one or more of `component:ui`,
 `component:runtime`, and `component:distribution`. A distribution-only change may be implemented by a
@@ -21,16 +28,19 @@ must have its own sub-issue.
 Implementation uses the existing canonical distribution, Runtime, and UI checkouts. Feature code is
 never moved to a temporary worktree, clone, or source copy. Before editing, the affected checkout is
 fetched and the feature branch is based on current `origin/main` or newer while unrelated local changes
-are preserved.
+are recorded and preserved. Only changes belonging to the task are staged.
 
 The Skill implements and verifies each work item in dependency order, creates correctly marked PRs,
 waits for required CI, and squash merges only green PRs. Runtime protocol dependencies are released
 and locked into UI before the consuming UI PR when necessary. A stable Desktop release remains a
 separate explicit request.
 
-After merging, the Skill deletes local and remote feature branches, fast-forwards every affected local
-`main` to `origin/main`, removes workflow metadata, and verifies clean synchronized checkouts. Public
-reconciliation then closes the parent only after each child was closed by its merged PR.
+After an authorized merge, the Skill switches each affected checkout to `main`, fast-forwards it to
+`origin/main`, and removes any remaining feature branches belonging to the merged task. It removes
+workflow metadata and verifies that no task changes remain uncommitted. Pre-existing user changes
+are preserved and reported; only a checkout that started clean is expected to finish clean. If those
+changes prevent safe synchronization, the Skill reports the remaining step without discarding them.
+Public reconciliation then closes the parent only after each child was closed by its merged PR.
 
 ## Pull requests
 
