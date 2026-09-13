@@ -90,6 +90,37 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("PurgeData", uninstall)
         self.assertIn("dev.aeloon.desktop", uninstall)
 
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_installer_runs_twice_in_one_session(self) -> None:
+        # `irm ... | iex` evaluates the script in the caller's session, so the
+        # parameters of the first run are still defined when it runs again.
+        # Off Windows every run stops at the same platform check; a parameter
+        # that fails to bind never gets that far.
+        script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        result = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"$script = Get-Content -Raw -LiteralPath '{ROOT / 'install.ps1'}'; "
+                "foreach ($attempt in 1, 2) { "
+                "  try { Invoke-Expression $script; throw 'unexpected success' } "
+                "  catch { \"run ${attempt}: $($_.Exception.Message)\" } "
+                "}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        runs = result.stdout.strip().splitlines()
+        self.assertEqual(len(runs), 2, result.stdout)
+        self.assertEqual(runs[0].removeprefix("run 1: "), runs[1].removeprefix("run 2: "), result.stdout)
+        self.assertNotIn("IfInstalled", result.stdout)
+        self.assertNotIn("ValidateSet", script)
+        self.assertIn('-notin @("overwrite", "update", "skip")', script)
+
     def _assert_powershell_parses(self, script: Path) -> None:
         result = subprocess.run(
             [

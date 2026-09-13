@@ -2,10 +2,13 @@
 # Installs the current stable aeloon-lite desktop release on Windows.
 # Historical version selection is intentionally unsupported.
 
+# `irm ... | iex` runs this param block in the caller's session, where the
+# variables outlive the run. A validation attribute would then fail to attach
+# to the empty $IfInstalled a previous run left behind, so the value is
+# checked in Install-AeloonDesktop instead.
 [CmdletBinding()]
 param(
   [string]$DownloadOnly,
-  [ValidateSet("overwrite", "update", "skip")]
   [string]$IfInstalled,
   [switch]$Silent
 )
@@ -76,6 +79,9 @@ function Install-AeloonDesktop {
   [Net.ServicePointManager]::SecurityProtocol =
     [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
+  if ($IfInstalled -and $IfInstalled -notin @("overwrite", "update", "skip")) {
+    throw "-IfInstalled accepts overwrite, update, or skip."
+  }
   if ($env:OS -ne "Windows_NT") { throw "install.ps1 runs on Windows only." }
   if ([Environment]::OSVersion.Version.Major -lt 10) {
     throw "aeloon-lite requires Windows 10 or later."
