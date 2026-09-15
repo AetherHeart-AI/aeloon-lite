@@ -33,6 +33,23 @@ manage.
   into another colleague's conversation hands the file over.
 - The **Files** panel lists the attachments this colleague received and the artifacts it delivered.
 
+## Consulting another colleague
+
+- Install the **Consult a colleague** skill on a colleague and it can privately ask another
+  colleague a question when it needs their expertise to carry on. Without the skill it never does.
+- The colleague you are talking to is still the one answering you: it reads the reply and writes
+  its own answer in its own words. The colleague it asked never speaks to you.
+- Under the reply, a **Consulted** section shows one card per question: who was asked, how it went,
+  and the first line of the answer. Open a card to read the question as it was actually put and the
+  answer as it came back. The card is there to read; you cannot join that exchange.
+- A consultation is not a conversation. It never appears in your list, and in a group nothing about
+  it is said in the room.
+- Limits: a colleague asks at most three times per answer, the colleague it asks cannot ask anybody
+  else, and stopping the answer stops the question with it. The colleague that hosts a group never
+  consults; in a room it hands work out instead.
+- Files the colleague you asked produces are not delivered separately. They share a desk, so the
+  colleague answering you decides what to hand over.
+
 ## Remote Runtimes
 
 With a remote server, the colleagues and their desks live on the server; this machine is only a
