@@ -9,7 +9,8 @@ manage.
 ## The colleague list
 
 - The sidebar lists your colleagues. A fresh install ships four: Assistant, Researcher,
-  Requirements Analyst, and Solution Architect.
+  Requirements Analyst, and Solution Architect. The Group Assistant that hosts rooms is not among
+  them; it belongs to groups and is edited there.
 - The Agents page adds a colleague, edits a persona (name, description, instructions, model,
   available tools), or deletes one.
 - Edits apply immediately: the colleague's next answer follows the new persona. After a colleague is
@@ -32,6 +33,20 @@ manage.
 - Files a colleague delivers appear as artifact cards you can open or save. Dragging an artifact card
   into another colleague's conversation hands the file over.
 - The **Files** panel lists the attachments this colleague received and the artifacts it delivered.
+
+## Groups
+
+- A group is a room you and several colleagues share. Every group comes with a **Group Assistant**:
+  it works out what you are asking for, splits it up, hands each part to the right colleague, and
+  sums up what comes back. When it is the only Agent in the room it does the work itself.
+- The group assistant is not in the colleague list and not in the Agent market. You cannot talk to
+  it alone, add it, or remove it from a group, because a room always needs one.
+- To change how it works, open the group's member list and select it: name, description,
+  instructions, model and skills are edited there like any other colleague, and the next answer
+  follows the change.
+- A group created before the group assistant existed switches over the next time somebody speaks in
+  it. The assistant that used to run that room leaves it once it has nothing in hand; everything it
+  already said stays in the room.
 
 ## Remote Runtimes
 
