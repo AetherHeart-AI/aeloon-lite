@@ -85,7 +85,7 @@ class MirrorTests(unittest.TestCase):
         oss = oss_mirror.Oss()
         sample = self.assets / "sample"
         sample.write_bytes(b"sample")
-        result = type("Result", (), {"stdout": "CRC64-ECMA : 295992936743767023\n"})()
+        result = type("Result", (), {"stdout": f"295992936743767023  {sample}\n\n0.000530(s) elapsed\n"})()
         with patch.object(oss, "command", return_value=result) as command:
             self.assertEqual(oss.local_crc64(sample), "295992936743767023")
         command.assert_called_once_with("hash", "crc64", str(sample), capture=True)

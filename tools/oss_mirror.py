@@ -106,8 +106,8 @@ class Oss:
 
     def local_crc64(self, path: Path) -> str:
         output = self.command("hash", "crc64", str(path), capture=True).stdout
-        match = re.search(r"CRC64[^\n]*?(\d+)\s*$", output, re.IGNORECASE | re.MULTILINE)
-        if not match:
+        match = re.search(r"^(\d{1,20})\s+(.+)$", output, re.MULTILINE)
+        if not match or match.group(2) != str(path):
             raise RuntimeError(f"Could not read local CRC-64 for {path.name}")
         return match.group(1)
 
