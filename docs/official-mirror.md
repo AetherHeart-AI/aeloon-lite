@@ -35,7 +35,8 @@ anyone who knows its URL. Keep credentials, test data, and private files out of 
 
 3. Attach a custom RAM permission policy limited to distribution object keys. `ossutil cp`
    needs `PutObject`, `ListParts`, and `AbortMultipartUpload` for multipart transfers. The
-   mirror also uses `stat` and reads existing objects to reject different bytes on replay.
+   mirror uses `stat` and reads small legacy sidecars, with a full-object comparison only
+   when no digest attestation exists.
 
    ```json
    {
@@ -117,10 +118,11 @@ fixed scripts and `download.html`. A superseded build cannot roll the page back.
    service stays running and unchanged. The installer writes a versioned user directory
    and links commands; an administrator separately chooses any systemd service change.
 
-If a public Release needs repair, run `mirror-release.yml` with its tag. It downloads the
-published GitHub assets, checks their GitHub SHA-256, and fills only missing OSS objects.
-A different existing object aborts the run and must be investigated; never overwrite a
-versioned key. Re-run `mirror-channels.yml` after a stable rollback or repair.
+If a public Release needs repair, run `mirror-release.yml` with its tag. It checks GitHub
+Release digests and sizes against OSS metadata or verified legacy sidecars, then downloads
+only missing or unverified GitHub assets. Downloaded assets are SHA-256 checked before
+upload. A different existing object aborts the run and must be investigated; never
+overwrite a versioned key. Re-run `mirror-channels.yml` after a stable rollback or repair.
 
 Sources: [GitHub OIDC subject format](https://docs.github.com/en/actions/reference/security/oidc),
 [Alibaba Cloud OIDC role trust](https://help.aliyun.com/en/ram/user-guide/create-a-ram-role-for-a-trusted-idp),
