@@ -1,0 +1,39 @@
+name: Repair official OSS release mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing public distribution Release tag, such as v0.4.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: oss-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Assume OSS mirror role through GitHub OIDC
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        with:
+          role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
+          role-session-expiration: 3600
+      - name: Install verified ossutil
+        run: bash tools/setup_ossutil.sh
+      - name: Verify GitHub assets and fill missing OSS objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 tools/oss_mirror.py release --tag "$RELEASE_TAG"
