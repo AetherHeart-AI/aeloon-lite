@@ -83,6 +83,17 @@ class MirrorTests(unittest.TestCase):
                 oss.upload_immutable(path, "releases/v0.4.1/archive")
         self.assertEqual(command.call_count, 1)
 
+    def test_new_immutable_upload_uses_parallel_parts(self):
+        path = self.assets / "archive"
+        path.write_bytes(b"correct")
+        oss = oss_mirror.Oss()
+        with patch.object(oss, "stat", return_value=None), \
+             patch.object(oss, "command") as command, \
+             patch.object(oss, "verify_object") as verify:
+            oss.upload_immutable(path, "releases/v0.4.1/archive")
+        self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
+        verify.assert_called_once_with(path, "releases/v0.4.1/archive")
+
     def test_crc64_uses_ossutil_v2_syntax(self):
         oss = oss_mirror.Oss()
         sample = self.assets / "sample"

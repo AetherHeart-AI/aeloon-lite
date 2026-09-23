@@ -143,6 +143,7 @@ class Oss:
             return
         self.command(
             "cp", str(path), self.url(key), "--ignore-existing", "--no-progress",
+            "--parallel", "10",
             "--acl", "private", "--cache-control", IMMUTABLE_CACHE,
             "--content-type", content_type(path.name),
         )
