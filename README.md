@@ -5,18 +5,23 @@ English | [简体中文](README.zh-CN.md)
 Stable installers for Aeloon Desktop and Aeloon Runtime Server. The installer always selects the
 current stable release; historical version selection is intentionally unsupported.
 
+Start at the [official download page](https://downloads.aeloon-lite.aetherheart.com/download.html)
+for a native terminal installer for Windows, macOS, or Linux. Select local Desktop or Runtime Server
+on the current Linux host, then the official mirror (default) or GitHub. Packages are checked for
+size and SHA-256 before installation.
+
 ## Local use
 
 Install Aeloon Desktop, which already contains the matching Runtime:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh
+curl -fsSL https://downloads.aeloon-lite.aetherheart.com/install.sh | sh
 ```
 
 On Windows, run this in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1 | iex
+irm https://downloads.aeloon-lite.aetherheart.com/install.ps1 | iex
 ```
 
 On first launch, choose **Run on this computer**. No separate Runtime download or server setup is
@@ -25,7 +30,7 @@ needed. Existing installations offer **overwrite**, **update**, or **skip**; aut
 arguments to the PowerShell script, run it as a script block:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1))) -IfInstalled skip
+& ([scriptblock]::Create((irm https://downloads.aeloon-lite.aetherheart.com/install.ps1))) -IfInstalled skip
 ```
 
 Supported platforms are Apple Silicon Macs running macOS 13+, ARM64 and x86_64 DEB/RPM Linux,
@@ -39,7 +44,7 @@ may warn; choose **More info** > **Run anyway**.
 Install Runtime on a Linux server as the user you log in as — no root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh
+curl -fsSL https://downloads.aeloon-lite.aetherheart.com/install-server.sh | sh
 ```
 
 Then run it with the address Desktop will connect to. The first start prints an `AELOON1-…`
@@ -54,6 +59,11 @@ the pairing code. A successful connection is saved and reconnects automatically.
 
 For a short step-by-step guide covering keeping it running with systemd, CA certificates, pairing,
 upgrades, team hosts, and removal, see [Remote deployment](docs/remote-deployment.md).
+
+The command-line scripts use the official mirror by default. To select GitHub, download the script
+and run `sh install.sh --source github` or `sh install-server.sh --source github`; use `-Source github`
+on Windows. The server installer places a matching Runtime and web client without creating,
+restarting, or replacing an existing systemd service.
 
 Aeloon is a set of Agents that work like colleagues, each with one conversation and its own
 desk. See [Colleagues and conversations](docs/colleagues.md).

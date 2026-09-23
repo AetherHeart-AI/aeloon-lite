@@ -192,12 +192,19 @@ if [[ "$is_draft" == true ]]; then
   for name in "${expected[@]}"; do upload_paths+=("$asset_dir/$name"); done
   gh release upload "$tag" --repo "$DISTRIBUTION_REPOSITORY" --clobber "${upload_paths[@]}"
   verify_remote_assets
-  gh release edit "$tag" --repo "$DISTRIBUTION_REPOSITORY" --draft=false --latest
 else
   verify_remote_assets || {
     echo "Published release $tag has a different asset set; use a new Desktop version." >&2
     exit 1
   }
+fi
+
+# Mirror the exact GitHub bytes before users can discover a new stable Release.
+mirror_options=(release --tag "$tag" --asset-dir "$asset_dir")
+if [[ "$is_draft" == true ]]; then mirror_options+=(--allow-draft); fi
+python3 tools/oss_mirror.py "${mirror_options[@]}"
+if [[ "$is_draft" == true ]]; then
+  gh release edit "$tag" --repo "$DISTRIBUTION_REPOSITORY" --draft=false --latest
 fi
 
 ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \

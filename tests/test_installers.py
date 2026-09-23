@@ -59,10 +59,8 @@ class InstallerTests(unittest.TestCase):
             self.assertNotIn("eval ", source)
             if name.startswith("install"):
                 self.assertNotIn("--version", source)
-                self.assertNotIn("SHA-256", source)
-                if name != "install-server.sh":
-                    self.assertNotIn("sha256sum", source)
-                self.assertNotIn("shasum", source)
+                self.assertIn("--source", source)
+                self.assertIn("sha256", source.lower())
 
     def test_windows_scripts_keep_the_same_contract(self) -> None:
         for name in ("install.ps1", "uninstall.ps1"):
@@ -70,7 +68,8 @@ class InstallerTests(unittest.TestCase):
             self.assertNotIn("release-manifest.json", source)
             self.assertNotIn("--channel", source)
             self.assertNotIn("--version", source)
-            self.assertNotIn("sha256", source)
+            if name == "install.ps1":
+                self.assertIn("Get-FileHash", source)
             # `irm ... | iex` runs in the caller's session, where `exit` would
             # close the user's whole PowerShell window.
             self.assertIsNone(re.search(r"^\s*exit\b", source, re.MULTILINE))
@@ -153,6 +152,26 @@ class InstallerTests(unittest.TestCase):
             b"desktop-fixture",
         )
 
+    def test_desktop_can_explicitly_select_github_source(self) -> None:
+        fixture = self._fixture("desktop", b"desktop-fixture")
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--source", "github", "--download-only", str(fixture["downloads"])],
+            capture_output=True, text=True, env=fixture["env"], check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("github.com/AetherHeart-AI/aeloon-lite/releases/download/v9.9.9/", Path(fixture["curl_log"]).read_text())
+
+    def test_desktop_refuses_changed_mirror_digest(self) -> None:
+        fixture = self._fixture("desktop", b"desktop-fixture")
+        Path(fixture["env"]["FIXTURE_CHECKSUM"]).write_text("0" * 64 + "  aeloon-lite-1.2.3-x86_64.deb\n")
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True, text=True, env=fixture["env"], check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("digest differs", result.stderr)
+        self.assertFalse(Path(fixture["downloads"]).exists())
+
     def test_runtime_stable_downloads_archive_from_unified_release(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
         result = subprocess.run(
@@ -168,6 +187,26 @@ class InstallerTests(unittest.TestCase):
             b"runtime-fixture",
         )
 
+    def test_runtime_accepts_verified_metadata_from_embedded_tui(self) -> None:
+        fixture = self._fixture("runtime", b"runtime-fixture")
+        metadata = json.loads(Path(fixture["release"]).read_text())
+        expected = "sha256:" + hashlib.sha256(b"runtime-fixture").hexdigest()
+        env = dict(fixture["env"])
+        env.update({
+            "AELOON_RELEASE_JSON_FILE": str(fixture["release"]),
+            "AELOON_EXPECTED_RUNTIME_SHA256": expected,
+            "AELOON_EXPECTED_RUNTIME_SIZE": str(len(b"runtime-fixture")),
+            "AELOON_EXPECTED_CLIENT_NAME": metadata["assets"][1]["name"],
+            "AELOON_EXPECTED_CLIENT_SHA256": expected,
+            "AELOON_EXPECTED_CLIENT_SIZE": str(len(b"runtime-fixture")),
+        })
+        result = subprocess.run(
+            ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((Path(fixture["downloads"]) / "release.json").read_bytes(), Path(fixture["release"]).read_bytes())
+
     def test_runtime_patch_release_reuses_existing_client_version(self) -> None:
         fixture = self._fixture("runtime", b"runtime-fixture")
         channel = Path(fixture["channel"])
@@ -175,6 +214,7 @@ class InstallerTests(unittest.TestCase):
         metadata = Path(fixture["release"])
         value = json.loads(metadata.read_text())
         value["tag_name"] = "runtime-v1.2.3"
+        value["tag"] = "runtime-v1.2.3"
         metadata.write_text(json.dumps(value))
         result = subprocess.run(
             ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
@@ -802,8 +842,14 @@ class InstallerTests(unittest.TestCase):
             write_executable(tools / "sha256sum", '#!/bin/sh\nexec /usr/bin/shasum -a 256 "$@"\n')
         release = root / "release.json"
         digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-        release.write_text(json.dumps({"tag_name":"v9.9.9", "draft":False, "prerelease":False,
-            "assets":[{"name":name,"digest":digest},{"name":"aeloon-client-9.9.9.tar.gz","digest":digest}]}))
+        release.write_text(json.dumps({"schema":1, "tag":"v9.9.9", "tag_name":"v9.9.9",
+            "draft":False, "prerelease":False,
+            "assets":[{"name":name,"digest":digest,"size":len(payload)},
+                {"name":"aeloon-client-9.9.9.tar.gz","digest":digest,"size":len(payload)}]}))
+        checksum = root / "checksum"
+        checksum.write_text(f"{digest.removeprefix('sha256:')}  {name}\n", encoding="ascii")
+        size = root / "size"
+        size.write_text(f"{len(payload)}\n", encoding="ascii")
         write_executable(
             tools / "curl",
             """#!/bin/sh
@@ -822,7 +868,10 @@ case "$url" in
     [ -z "${FIXTURE_FAIL_INSTALLER_FETCH:-}" ] || exit 22
     cp "$FIXTURE_INSTALLER" "$output"
     ;;
-  *raw.githubusercontent.com*) cp "$FIXTURE_CHANNEL" "$output" ;;
+  */channels/*/stable) cp "$FIXTURE_CHANNEL" "$output" ;;
+  *.sha256) cp "$FIXTURE_CHECKSUM" "$output" ;;
+  *.size) cp "$FIXTURE_SIZE" "$output" ;;
+  */manifest.json) cp "$FIXTURE_RELEASE" "$output" ;;
   *api.github.com*) cp "$FIXTURE_RELEASE" "$output" ;;
   *)
     [ -z "${FIXTURE_CURL_LOG:-}" ] || printf '%s\n' "$url" >> "$FIXTURE_CURL_LOG"
@@ -841,6 +890,8 @@ esac
             "FIXTURE_CHANNEL": str(channel),
             "FIXTURE_ARTIFACT": str(artifact),
             "FIXTURE_RELEASE": str(release),
+            "FIXTURE_CHECKSUM": str(checksum),
+            "FIXTURE_SIZE": str(size),
             "FIXTURE_CURL_LOG": str(curl_log),
             "FIXTURE_INSTALL_LOG": str(install_log),
             "FIXTURE_INSTALLER": str(ROOT / "install-server.sh"),

@@ -2,14 +2,14 @@
 set -eu
 
 REPOSITORY="AetherHeart-AI/aeloon-lite"
-RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
+DOWNLOAD_SOURCE=mirror
 PREFIX=${AELOON_RUNTIME_PREFIX:-$HOME/.local/share/aeloon-runtime}
 BIN_DIR=${AELOON_RUNTIME_BIN_DIR:-$HOME/.local/bin}
 DOWNLOAD_ONLY=""
 
 usage() {
   cat <<'EOF'
-Usage: install-server.sh [--download-only DIRECTORY]
+Usage: install-server.sh [--source mirror|github] [--download-only DIRECTORY]
 
 Installs the stable Aeloon Runtime for the current user under
 ~/.local/share/aeloon-runtime and links its commands into ~/.local/bin.
@@ -19,17 +19,28 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --source) [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$2" in mirror|github) DOWNLOAD_SOURCE=$2 ;; *) echo "Unsupported source: $2" >&2; exit 2 ;; esac
+      shift 2 ;;
     --download-only) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; DOWNLOAD_ONLY=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
+if [ "$DOWNLOAD_SOURCE" = mirror ]; then
+  CHANNEL_ROOT=https://downloads.aeloon-lite.aetherheart.com
+  ASSET_ROOT="$CHANNEL_ROOT/releases"
+else
+  CHANNEL_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
+  ASSET_ROOT="https://github.com/$REPOSITORY/releases/download"
+fi
+
 [ "$(uname -s)" = Linux ] || {
   echo "Aeloon Runtime server installation supports Linux hosts only." >&2
   exit 2
 }
-for required_command in awk curl grep sed tar jq sha256sum; do
+for required_command in awk curl grep sed tar sha256sum; do
   command -v "$required_command" >/dev/null 2>&1 || {
     echo "Required command is unavailable: $required_command" >&2
     exit 2
@@ -76,7 +87,7 @@ if [ -n "${AELOON_CHANNEL_FILE:-}" ]; then
   [ -r "$AELOON_CHANNEL_FILE" ] || { echo "AELOON_CHANNEL_FILE is not readable." >&2; exit 2; }
   cp "$AELOON_CHANNEL_FILE" "$CHANNEL_FILE"
 else
-  fetch "$RAW_ROOT/channels/runtime/stable" "$CHANNEL_FILE" || {
+  fetch "$CHANNEL_ROOT/channels/runtime/stable" "$CHANNEL_FILE" || {
     echo "Could not resolve the stable Runtime release." >&2
     exit 2
   }
@@ -183,30 +194,64 @@ case "$(uname -m)" in
   *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 2 ;;
 esac
 ASSET="aeloon-runtime-linux-${RELEASE_ARCH}.tar.gz"
-ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
+ASSET_URL="$ASSET_ROOT/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
 [ "$CHANNEL_SCHEMA" = "# aeloon-release-v2" ] || {
   echo "A matching Runtime and client release is required." >&2; exit 2;
 }
 RELEASE_JSON="$TEMP_ROOT/release.json"
-fetch "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" "$RELEASE_JSON"
-jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$RELEASE_JSON" >/dev/null || {
-  echo "Invalid stable Release identity." >&2; exit 2;
+if [ -n "${AELOON_EXPECTED_RUNTIME_SHA256:-}" ] && [ -n "${AELOON_EXPECTED_CLIENT_SHA256:-}" ] && [ -n "${AELOON_EXPECTED_CLIENT_NAME:-}" ]; then
+  CLIENT_ASSET=$AELOON_EXPECTED_CLIENT_NAME
+  RELEASE_KIND=embedded
+  [ -r "${AELOON_RELEASE_JSON_FILE:-}" ] || { echo "Embedded Release metadata is missing." >&2; exit 2; }
+  cp "$AELOON_RELEASE_JSON_FILE" "$RELEASE_JSON"
+else
+  command -v jq >/dev/null 2>&1 || { echo "jq is required for direct server installs; use the TUI installer." >&2; exit 2; }
+  if [ "$DOWNLOAD_SOURCE" = mirror ]; then
+    fetch "$ASSET_ROOT/$TAG/manifest.json" "$RELEASE_JSON"
+    jq -e --arg tag "$TAG" '.schema == 1 and .tag == $tag' "$RELEASE_JSON" >/dev/null || {
+      echo "Invalid mirror Release manifest." >&2; exit 2;
+    }
+    RELEASE_KIND=mirror
+  else
+    fetch "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" "$RELEASE_JSON"
+    jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$RELEASE_JSON" >/dev/null || {
+      echo "Invalid stable Release identity." >&2; exit 2;
+    }
+    RELEASE_KIND=github
+  fi
+  CLIENT_ASSET=$(jq -er '[.assets[].name | select(test("^aeloon-client-[0-9]+\\.[0-9]+\\.[0-9]+\\.tar\\.gz$"))] | if length == 1 then .[0] else error("matching client asset missing or ambiguous") end' "$RELEASE_JSON")
+fi
+printf '%s\n' "$CLIENT_ASSET" | LC_ALL=C grep -Eq '^aeloon-client-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$' || {
+  echo "Invalid client archive name." >&2; exit 2;
 }
-CLIENT_ASSET=$(jq -er '[.assets[].name | select(test("^aeloon-client-[0-9]+\\.[0-9]+\\.[0-9]+\\.tar\\.gz$"))] | if length == 1 then .[0] else error("matching client asset missing or ambiguous") end' "$RELEASE_JSON")
 CLIENT_ARCHIVE="$TEMP_ROOT/$CLIENT_ASSET"
 verify_asset() {
-  expected=$(jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("asset missing or ambiguous") end' "$RELEASE_JSON")
+  if [ "$RELEASE_KIND" = embedded ]; then
+    if [ "$1" = "$ASSET" ]; then
+      expected=$AELOON_EXPECTED_RUNTIME_SHA256
+      expected_size=${AELOON_EXPECTED_RUNTIME_SIZE:-}
+    else
+      expected=$AELOON_EXPECTED_CLIENT_SHA256
+      expected_size=${AELOON_EXPECTED_CLIENT_SIZE:-}
+    fi
+  else
+    expected=$(jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("asset missing or ambiguous") end' "$RELEASE_JSON")
+    expected_size=$(jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .size] | if length == 1 then .[0] else error("asset missing or ambiguous") end' "$RELEASE_JSON")
+  fi
   printf '%s\n' "$expected" | grep -Eq '^sha256:[a-f0-9]{64}$' || { echo "Release asset digest unavailable." >&2; exit 2; }
+  if [ -n "$expected_size" ] && [ "$(wc -c < "$2" | tr -d ' ')" != "$expected_size" ]; then
+    echo "Release asset size mismatch: $1" >&2; exit 2
+  fi
   actual="sha256:$(sha256sum "$2" | awk '{print $1}')"
   [ "$actual" = "$expected" ] || { echo "Release asset digest mismatch: $1" >&2; exit 2; }
 }
 
-echo "Downloading Aeloon Runtime $VERSION from GitHub..."
+echo "Downloading Aeloon Runtime $VERSION from $DOWNLOAD_SOURCE..."
 fetch "$ASSET_URL" "$ARCHIVE"
 verify_asset "$ASSET" "$ARCHIVE"
-fetch "https://github.com/$REPOSITORY/releases/download/$TAG/$CLIENT_ASSET" "$CLIENT_ARCHIVE"
+fetch "$ASSET_ROOT/$TAG/$CLIENT_ASSET" "$CLIENT_ARCHIVE"
 verify_asset "$CLIENT_ASSET" "$CLIENT_ARCHIVE"
 CLIENT_PATHS="$TEMP_ROOT/client-paths"
 tar -tzf "$CLIENT_ARCHIVE" > "$CLIENT_PATHS"
@@ -225,7 +270,7 @@ if [ -n "$DOWNLOAD_ONLY" ]; then
   mkdir -p "$DOWNLOAD_ONLY"
   cp "$ARCHIVE" "$DOWNLOAD_ONLY/$ASSET"
   cp "$CLIENT_ARCHIVE" "$DOWNLOAD_ONLY/$CLIENT_ASSET"
-  cp "$RELEASE_JSON" "$DOWNLOAD_ONLY/release.json"
+  if [ -f "$RELEASE_JSON" ]; then cp "$RELEASE_JSON" "$DOWNLOAD_ONLY/release.json"; fi
   echo "Downloaded Runtime archive: $DOWNLOAD_ONLY/$ASSET"
   exit 0
 fi

@@ -2,7 +2,7 @@
 set -eu
 
 REPOSITORY="AetherHeart-AI/aeloon-lite"
-RAW_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
+DOWNLOAD_SOURCE=mirror
 DOWNLOAD_ONLY=""
 REQUESTED_FORMAT=""
 IF_INSTALLED=""
@@ -10,13 +10,18 @@ INSTALL_ACTION="install"
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--download-only DIRECTORY] [--format dmg|deb|rpm]
+Usage: install.sh [--source mirror|github] [--download-only DIRECTORY] [--format dmg|deb|rpm]
                   [--if-installed overwrite|update|skip]
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --source)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$2" in mirror|github) DOWNLOAD_SOURCE=$2 ;; *) echo "Unsupported source: $2" >&2; exit 2 ;; esac
+      shift 2
+      ;;
     --download-only)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
       DOWNLOAD_ONLY=$2
@@ -42,6 +47,14 @@ while [ "$#" -gt 0 ]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [ "$DOWNLOAD_SOURCE" = mirror ]; then
+  CHANNEL_ROOT=https://downloads.aeloon-lite.aetherheart.com
+  ASSET_ROOT="$CHANNEL_ROOT/releases"
+else
+  CHANNEL_ROOT="https://raw.githubusercontent.com/$REPOSITORY/main"
+  ASSET_ROOT="https://github.com/$REPOSITORY/releases/download"
+fi
 
 for required_command in awk curl grep sed; do
   command -v "$required_command" >/dev/null 2>&1 || {
@@ -150,7 +163,7 @@ if [ -n "${AELOON_CHANNEL_FILE:-}" ]; then
   [ -r "$AELOON_CHANNEL_FILE" ] || { echo "AELOON_CHANNEL_FILE is not readable." >&2; exit 2; }
   cp "$AELOON_CHANNEL_FILE" "$CHANNEL_FILE"
 else
-  fetch "$RAW_ROOT/channels/desktop/stable" "$CHANNEL_FILE" || {
+  fetch "$CHANNEL_ROOT/channels/desktop/stable" "$CHANNEL_FILE" || {
     echo "Could not resolve the stable desktop release." >&2
     exit 2
   }
@@ -263,11 +276,51 @@ if [ -z "$DOWNLOAD_ONLY" ] && INSTALLED_VERSION=$(detect_installed_version); the
 fi
 
 ASSET="aeloon-lite-${VERSION}-${RELEASE_ARCH}.${PACKAGE_KIND}"
-ASSET_URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
+ASSET_URL="$ASSET_ROOT/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
-echo "Downloading aeloon-lite $VERSION from GitHub..."
+echo "Downloading aeloon-lite $VERSION from $DOWNLOAD_SOURCE..."
 fetch "$ASSET_URL" "$ARCHIVE"
+expected_digest=${AELOON_EXPECTED_ASSET_SHA256:-}
+expected_size=${AELOON_EXPECTED_ASSET_SIZE:-}
+if [ -z "$expected_digest" ]; then
+  if [ "$DOWNLOAD_SOURCE" = mirror ]; then
+    checksum_file="$TEMP_ROOT/$ASSET.sha256"
+    fetch "$ASSET_URL.sha256" "$checksum_file"
+    expected_digest="sha256:$(awk -v name="$ASSET" 'NF == 2 && $2 == name { print $1; count++ } END { if (count != 1) exit 2 }' "$checksum_file")" || {
+      echo "Invalid mirror checksum for $ASSET." >&2; exit 2;
+    }
+    size_file="$TEMP_ROOT/$ASSET.size"
+    fetch "$ASSET_URL.size" "$size_file"
+    expected_size=$(cat "$size_file")
+    printf '%s\n' "$expected_size" | LC_ALL=C grep -Eq '^[1-9][0-9]*$' || {
+      echo "Invalid mirror size for $ASSET." >&2; exit 2;
+    }
+  else
+    command -v jq >/dev/null 2>&1 || { echo "jq is required for direct GitHub installs; use the TUI installer." >&2; exit 2; }
+    release_json="$TEMP_ROOT/release.json"
+    fetch "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" "$release_json"
+    jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$release_json" >/dev/null || {
+      echo "Invalid GitHub Release identity." >&2; exit 2;
+    }
+    expected_digest=$(jq -er --arg name "$ASSET" '[.assets[] | select(.name == $name) | .digest] | if length == 1 then .[0] else error("asset missing") end' "$release_json")
+    expected_size=$(jq -er --arg name "$ASSET" '[.assets[] | select(.name == $name) | .size] | if length == 1 then .[0] else error("asset missing") end' "$release_json")
+  fi
+fi
+printf '%s\n' "$expected_digest" | LC_ALL=C grep -Eq '^sha256:[a-f0-9]{64}$' || {
+  echo "Invalid SHA-256 for $ASSET." >&2; exit 2;
+}
+if [ -n "$expected_size" ] && [ "$(wc -c < "$ARCHIVE" | tr -d ' ')" != "$expected_size" ]; then
+  echo "Downloaded size differs for $ASSET." >&2; exit 2
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_digest="sha256:$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual_digest="sha256:$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+else
+  echo "A SHA-256 utility is required." >&2; exit 2
+fi
+[ "$actual_digest" = "$expected_digest" ] || { echo "Downloaded digest differs for $ASSET." >&2; exit 2; }
 save_installer() {
   destination=$1
   mkdir -p "$destination"

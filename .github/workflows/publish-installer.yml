@@ -1,0 +1,77 @@
+name: Publish native installer to OSS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - go.mod
+      - installer_main.go
+      - installer_main_test.go
+      - install.sh
+      - install.ps1
+      - install-server.sh
+      - assets/download.html.template
+      - tools/oss_mirror.py
+      - tools/publish_installer.py
+      - tools/setup_ossutil.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: oss-native-installer
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Test and build four native installer packages
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l installer_main.go installer_main_test.go)"
+          go test ./...
+          archive_dir="$RUNNER_TEMP/aeloon-installer-archives"
+          mkdir -p "$archive_dir"
+          for target in windows/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            case "$target" in
+              windows/amd64) platform=windows-x64; binary=aeloon-installer.exe ;;
+              darwin/arm64) platform=macos-arm64; binary=aeloon-installer ;;
+              linux/amd64) platform=linux-x86_64; binary=aeloon-installer ;;
+              linux/arm64) platform=linux-arm64; binary=aeloon-installer ;;
+            esac
+            build_dir="$RUNNER_TEMP/aeloon-build-$platform"
+            mkdir -p "$build_dir"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-X main.buildCommit=$GITHUB_SHA" -o "$build_dir/$binary" .
+            if [[ "$os" == windows ]]; then
+              (cd "$build_dir" && zip -q "$archive_dir/aeloon-installer-$platform.zip" "$binary")
+              unzip -t "$archive_dir/aeloon-installer-$platform.zip"
+            else
+              tar -C "$build_dir" -czf "$archive_dir/aeloon-installer-$platform.tar.gz" "$binary"
+              test "$(tar -tzf "$archive_dir/aeloon-installer-$platform.tar.gz")" = "$binary"
+            fi
+          done
+      - name: Assume OSS mirror role through GitHub OIDC
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        with:
+          role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
+          role-session-expiration: 3600
+      - name: Install verified ossutil
+        run: bash tools/setup_ossutil.sh
+      - name: Publish immutable installers and fixed download page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/publish_installer.py --directory "$RUNNER_TEMP/aeloon-installer-archives" --commit "$GITHUB_SHA"

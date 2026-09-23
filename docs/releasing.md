@@ -27,10 +27,15 @@ Desktop stable 保持原版本；元数据不包含产物哈希。
 6. The release owner manually runs `publish.yml` with the tested candidate run ID and required
    Chinese and English summaries. Official publication accepts only an `all` candidate, promotes
    those exact Desktop files, resolves the Runtime pinned by the Desktop commit, and creates the
-   public `vX.Y.Z` Release.
+   public `vX.Y.Z` Release. Before publication, it mirrors that verified Release to OSS and writes
+   the mirror manifest last. A mirror failure leaves the Release draft and stops stable promotion.
 7. The publisher resolves merged PRs in the actual UI, Runtime, and distribution source ranges back
    to completed public Issues, publishes the deduplicated public Issue list, then updates both stable
-   files through one protected PR.
+   files through one protected PR. After merge, the channel workflow mirrors the latest two files.
+
+The CDN mirror, OIDC role, backfill and rollback procedure are in
+[Official mirror operations](official-mirror.md). The native TUI is built independently of
+application versions and published after installer changes merge to `main` and CI passes.
 
 对应中文流程：先发布 Runtime 并合入 Desktop Runtime-lock PR；Desktop 构建完成后只产生
 可下载的 Actions 候选产物。手动运行候选流程时，可以只选择 macOS arm64、Linux arm64、

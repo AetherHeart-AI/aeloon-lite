@@ -5,18 +5,22 @@
 Aeloon Desktop 与 Aeloon Runtime Server 的稳定安装入口。安装脚本始终选择当前稳定版，
 不提供历史版本选择。
 
+首选从[官方下载页](https://downloads.aeloon-lite.aetherheart.com/download.html)获取
+Windows、macOS 或 Linux 的终端安装器。运行后选择本机 Desktop 或当前 Linux 主机的 Runtime Server，
+再选择官方镜像（默认）或 GitHub。安装器会在安装前核对包的大小与 SHA-256。
+
 ## 本地使用
 
 安装已内置对应 Runtime 的 Aeloon Desktop：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.sh | sh
+curl -fsSL https://downloads.aeloon-lite.aetherheart.com/install.sh | sh
 ```
 
 Windows 请在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1 | iex
+irm https://downloads.aeloon-lite.aetherheart.com/install.ps1 | iex
 ```
 
 首次启动时选择**在本机运行**，无需单独下载 Runtime 或部署服务器。若已安装，可选择
@@ -25,7 +29,7 @@ irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps
 PowerShell 脚本需要传参时，用脚本块方式运行：
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install.ps1))) -IfInstalled skip
+& ([scriptblock]::Create((irm https://downloads.aeloon-lite.aetherheart.com/install.ps1))) -IfInstalled skip
 ```
 
 支持平台：macOS 13+ 的 Apple Silicon Mac，ARM64、x86_64 架构的 DEB/RPM Linux，以及 x64 架构的
@@ -38,7 +42,7 @@ Windows SmartScreen 可能拦截，请选择**更多信息** > **仍要运行**�
 以你登录的普通用户身份在 Linux 服务器上安装 Runtime，不需要 root：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AetherHeart-AI/aeloon-lite/main/install-server.sh | sh
+curl -fsSL https://downloads.aeloon-lite.aetherheart.com/install-server.sh | sh
 ```
 
 然后带上 Desktop 将要连接的地址运行它。第一次启动会打印一次性 `AELOON1-…` 配对码：
@@ -52,6 +56,10 @@ aeloon-runtime-server run --host runtime.example.com
 
 用 systemd 常驻、CA 证书、配对、升级、团队主机与卸载的简明步骤参见
 [远程部署教程](docs/remote-deployment.zh-CN.md)。
+
+命令行脚本默认从官方镜像下载；要指定 GitHub，可下载脚本后执行 `sh install.sh --source github`
+或 `sh install-server.sh --source github`，Windows 使用 `-Source github`。服务器安装只放置
+匹配的 Runtime 与网页客户端，不会创建、重启或替换现有 systemd 服务。
 
 Aeloon 里的 Agent 像同事一样各有一条对话和一张桌面，说明见
 [同事与对话](docs/colleagues.zh-CN.md)。
