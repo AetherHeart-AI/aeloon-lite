@@ -41,3 +41,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: python3 tools/oss_mirror.py release --tag "$RELEASE_TAG"
+      - name: Publish current stable channel pointers
+        run: python3 tools/oss_mirror.py channels --directory channels
