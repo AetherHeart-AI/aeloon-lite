@@ -126,6 +126,12 @@ class Oss:
     def header(metadata: dict[str, str], name: str) -> str | None:
         return next((value for key, value in metadata.items() if key.lower() == name.lower()), None)
 
+    def sha256_metadata(self, metadata: dict[str, str]) -> str | None:
+        # Early ossutil 2 uploads passed a full header name to --metadata, which
+        # added its own prefix and stored the double-prefixed legacy key.
+        return (self.header(metadata, "X-Oss-Meta-Sha256")
+                or self.header(metadata, "X-Oss-Meta-X-Oss-Meta-Sha256"))
+
     def verify_object(self, path: Path, key: str, metadata: dict[str, str] | None = None) -> dict[str, str]:
         if metadata is None:
             metadata = self.stat(key)
@@ -149,7 +155,7 @@ class Oss:
         crc64 = self.header(metadata, "X-Oss-Hash-Crc64ecma")
         if not crc64 or not re.fullmatch(r"\d{1,20}", crc64):
             return False
-        remote_digest = self.header(metadata, "X-Oss-Meta-Sha256")
+        remote_digest = self.sha256_metadata(metadata)
         if remote_digest is not None:
             if remote_digest != digest.removeprefix("sha256:"):
                 raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
@@ -171,7 +177,7 @@ class Oss:
         existing = self.stat(key)
         if existing is not None:
             self.verify_object(path, key, existing)
-            remote_digest = self.header(existing, "X-Oss-Meta-Sha256")
+            remote_digest = self.sha256_metadata(existing)
             if remote_digest is not None:
                 if remote_digest != digest:
                     raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
@@ -185,20 +191,20 @@ class Oss:
                 downloaded = Path(temporary) / path.name
                 self.command(
                     "cp", self.url(key), str(downloaded), "--force", "--no-progress",
-                    "--parallel", "10", "--part-size", "16M",
+                    "--parallel", "10", "--part-size", "16M", "--bigfile-threshold", "16M",
                 )
                 if sha256(downloaded).removeprefix("sha256:") != digest:
                     raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
             return
         self.command(
             "cp", str(path), self.url(key), "--ignore-existing", "--no-progress",
-            "--parallel", "10", "--part-size", "16M",
-            "--metadata", f"x-oss-meta-sha256={digest}",
+            "--parallel", "10", "--part-size", "16M", "--bigfile-threshold", "16M",
+            "--metadata", f"sha256={digest}",
             "--acl", "private", "--cache-control", IMMUTABLE_CACHE,
             "--content-type", content_type(path.name),
         )
         uploaded = self.verify_object(path, key)
-        if self.header(uploaded, "X-Oss-Meta-Sha256") != digest:
+        if self.sha256_metadata(uploaded) != digest:
             raise RuntimeError(f"OSS object SHA-256 metadata differs: {key}")
 
     def upload_mutable(self, path: Path, key: str) -> None:

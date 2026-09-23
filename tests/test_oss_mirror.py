@@ -125,6 +125,16 @@ class MirrorTests(unittest.TestCase):
             self.assertTrue(oss.verified_existing_digest(key, 7, digest, key + ".sha256"))
         command.assert_not_called()
 
+    def test_existing_digest_accepts_legacy_double_prefix(self):
+        oss = oss_mirror.Oss()
+        digest = "sha256:" + "a" * 64
+        key = "releases/v0.4.1/archive"
+        metadata = {"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "123",
+                    "X-Oss-Meta-X-Oss-Meta-Sha256": "a" * 64}
+        with patch.object(oss, "stat", return_value=metadata), patch.object(oss, "command") as command:
+            self.assertTrue(oss.verified_existing_digest(key, 7, digest, key + ".sha256"))
+        command.assert_not_called()
+
     def test_existing_digest_attestation_rejects_changed_size(self):
         oss = oss_mirror.Oss()
         key = "releases/v0.4.1/archive"
@@ -195,7 +205,9 @@ class MirrorTests(unittest.TestCase):
             oss.upload_immutable(path, "releases/v0.4.1/archive")
         self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
         self.assertIn(("--part-size", "16M"), list(zip(command.call_args.args, command.call_args.args[1:])))
-        self.assertIn("--metadata", command.call_args.args)
+        self.assertIn(("--bigfile-threshold", "16M"), list(zip(command.call_args.args, command.call_args.args[1:])))
+        self.assertIn(("--metadata", "sha256=" + hashlib.sha256(b"correct").hexdigest()),
+                      list(zip(command.call_args.args, command.call_args.args[1:])))
         verify.assert_called_once_with(path, "releases/v0.4.1/archive")
 
     def test_crc64_uses_ossutil_v2_syntax(self):
