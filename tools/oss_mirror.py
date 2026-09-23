@@ -136,7 +136,10 @@ class Oss:
         if existing is not None:
             with tempfile.TemporaryDirectory(prefix="aeloon-oss-compare-") as temporary:
                 downloaded = Path(temporary) / path.name
-                self.command("cp", self.url(key), str(downloaded), "--force", "--no-progress")
+                self.command(
+                    "cp", self.url(key), str(downloaded), "--force", "--no-progress",
+                    "--parallel", "10",
+                )
                 if sha256(downloaded) != sha256(path):
                     raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
             self.verify_object(path, key)

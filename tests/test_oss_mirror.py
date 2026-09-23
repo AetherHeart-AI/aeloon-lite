@@ -82,6 +82,7 @@ class MirrorTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Refusing to overwrite"):
                 oss.upload_immutable(path, "releases/v0.4.1/archive")
         self.assertEqual(command.call_count, 1)
+        self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
 
     def test_new_immutable_upload_uses_parallel_parts(self):
         path = self.assets / "archive"
