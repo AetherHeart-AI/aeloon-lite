@@ -21,7 +21,7 @@ class RecordingOss:
         self.uploaded = []
         self.manifests = {}
 
-    def upload_immutable(self, path, key):
+    def upload_immutable(self, path, key, expected_digest=None, legacy_digest_key=None):
         self.uploaded.append((key, path.read_bytes()))
 
     def upload_mutable(self, path, key):
@@ -58,10 +58,17 @@ class MirrorTests(unittest.TestCase):
             oss_mirror.mirror_release("v0.4.1", self.assets, True, self.oss)
         keys = [key for key, _ in self.oss.uploaded]
         self.assertEqual(keys[-1], "releases/v0.4.1/manifest.json")
-        self.assertEqual(len(keys), len(names) * 3 + 1)
+        self.assertEqual(keys[-2], "releases/v0.4.1/checksums.txt")
+        self.assertEqual(len(keys), len(names) + 2)
         manifest = json.loads(self.oss.uploaded[-1][1])
         self.assertEqual({item["name"] for item in manifest["assets"]}, names)
         self.assertEqual(manifest["schema"], 1)
+        index = self.oss.uploaded[-2][1].decode("ascii").splitlines()
+        self.assertEqual(index[:2], ["# aeloon-checksums-v1", "# release=v0.4.1"])
+        self.assertEqual(
+            index[2:],
+            [f"{asset['digest'][7:]} {asset['size']} {asset['name']}" for asset in manifest["assets"]],
+        )
 
     def test_missing_or_changed_asset_stops_before_upload(self):
         names = oss_mirror.expected_names("v0.4.1", set())
@@ -77,6 +84,7 @@ class MirrorTests(unittest.TestCase):
         path.write_bytes(b"correct")
         oss = oss_mirror.Oss()
         with patch.object(oss, "stat", return_value={"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "0"}), \
+             patch.object(oss, "local_crc64", return_value="0"), \
              patch.object(oss, "command") as command:
             command.side_effect = lambda *args, **kwargs: Path(args[2]).write_bytes(b"changed")
             with self.assertRaisesRegex(RuntimeError, "Refusing to overwrite"):
@@ -84,15 +92,57 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(command.call_count, 1)
         self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
 
+    def test_replay_uses_sha_metadata_without_downloading(self):
+        path = self.assets / "archive"
+        path.write_bytes(b"correct")
+        digest = hashlib.sha256(b"correct").hexdigest()
+        oss = oss_mirror.Oss()
+        existing = {"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "123", "X-Oss-Meta-Sha256": digest}
+        with patch.object(oss, "stat", return_value=existing), \
+             patch.object(oss, "local_crc64", return_value="123"), \
+             patch.object(oss, "command") as command:
+            oss.upload_immutable(path, "releases/v0.4.1/archive")
+        command.assert_not_called()
+
+    def test_replay_rejects_wrong_sha_metadata(self):
+        path = self.assets / "archive"
+        path.write_bytes(b"correct")
+        oss = oss_mirror.Oss()
+        existing = {"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "123", "X-Oss-Meta-Sha256": "0" * 64}
+        with patch.object(oss, "stat", return_value=existing), \
+             patch.object(oss, "local_crc64", return_value="123"), \
+             patch.object(oss, "command") as command:
+            with self.assertRaisesRegex(RuntimeError, "Refusing to overwrite"):
+                oss.upload_immutable(path, "releases/v0.4.1/archive")
+        command.assert_not_called()
+
+    def test_legacy_sidecar_avoids_large_download(self):
+        path = self.assets / "archive"
+        path.write_bytes(b"correct")
+        digest = hashlib.sha256(b"correct").hexdigest()
+        oss = oss_mirror.Oss()
+        existing = {"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "123"}
+        with patch.object(oss, "stat", side_effect=[existing, {"Content-Length": "74"}]), \
+             patch.object(oss, "local_crc64", return_value="123"), \
+             patch.object(oss, "read_text", return_value=f"{digest}  archive\n"), \
+             patch.object(oss, "command") as command:
+            oss.upload_immutable(
+                path, "releases/v0.4.1/archive",
+                legacy_digest_key="releases/v0.4.1/archive.sha256",
+            )
+        command.assert_not_called()
+
     def test_new_immutable_upload_uses_parallel_parts(self):
         path = self.assets / "archive"
         path.write_bytes(b"correct")
         oss = oss_mirror.Oss()
         with patch.object(oss, "stat", return_value=None), \
              patch.object(oss, "command") as command, \
-             patch.object(oss, "verify_object") as verify:
+             patch.object(oss, "verify_object", return_value={"X-Oss-Meta-Sha256": hashlib.sha256(b"correct").hexdigest()}) as verify:
             oss.upload_immutable(path, "releases/v0.4.1/archive")
         self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
+        self.assertIn(("--part-size", "16M"), list(zip(command.call_args.args, command.call_args.args[1:])))
+        self.assertIn("--metadata", command.call_args.args)
         verify.assert_called_once_with(path, "releases/v0.4.1/archive")
 
     def test_crc64_uses_ossutil_v2_syntax(self):
