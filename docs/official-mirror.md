@@ -81,11 +81,15 @@ existing stable PR. An OSS failure leaves the Release draft and does not advance
 Runtime-only Releases mirror six archives, plus the matched client archive when paired.
 Only a tested pair may advance Runtime stable. Candidate packages remain in Actions.
 
-Immutable objects are `releases/<tag>/<asset>`, `releases/<tag>/<asset>.sha256`,
-`releases/<tag>/<asset>.size`, and `releases/<tag>/manifest.json`. The sidecars let the
-POSIX Desktop script validate mirror downloads without `jq`; the manifest contains every
-asset name, byte size, and SHA-256. A repeat run skips identical objects and fails on
-different bytes. The manifest is always uploaded after every package and sidecar verifies.
+Immutable objects are `releases/<tag>/<asset>`, `releases/<tag>/checksums.txt`, and
+`releases/<tag>/manifest.json`. The text index lists each asset's SHA-256 and byte size
+for the POSIX Desktop script without requiring `jq`; the JSON manifest provides the same
+values to the other installers. New package objects also carry SHA-256 metadata. A repeat
+run verifies size, CRC-64, and that metadata, then skips matching packages without downloading
+them. Older packages can be verified through their existing small `.sha256` sidecars; if
+neither proof exists, the mirror downloads the package to verify its SHA-256. The upload
+uses 16 MiB multipart chunks. A digest mismatch fails without overwriting the object.
+The manifest is uploaded after all packages and `checksums.txt` verify.
 
 After a stable PR merges, `mirror-channels.yml` reads the then-current `main` copies of
 both stable files, requires matching OSS manifests, and updates the two channel objects.

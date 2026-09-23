@@ -279,23 +279,22 @@ ASSET="aeloon-lite-${VERSION}-${RELEASE_ARCH}.${PACKAGE_KIND}"
 ASSET_URL="$ASSET_ROOT/$TAG/$ASSET"
 ARCHIVE="$TEMP_ROOT/$ASSET"
 
-echo "Downloading aeloon-lite $VERSION from $DOWNLOAD_SOURCE..."
-fetch "$ASSET_URL" "$ARCHIVE"
 expected_digest=${AELOON_EXPECTED_ASSET_SHA256:-}
 expected_size=${AELOON_EXPECTED_ASSET_SIZE:-}
 if [ -z "$expected_digest" ]; then
   if [ "$DOWNLOAD_SOURCE" = mirror ]; then
-    checksum_file="$TEMP_ROOT/$ASSET.sha256"
-    fetch "$ASSET_URL.sha256" "$checksum_file"
-    expected_digest="sha256:$(awk -v name="$ASSET" 'NF == 2 && $2 == name { print $1; count++ } END { if (count != 1) exit 2 }' "$checksum_file")" || {
-      echo "Invalid mirror checksum for $ASSET." >&2; exit 2;
-    }
-    size_file="$TEMP_ROOT/$ASSET.size"
-    fetch "$ASSET_URL.size" "$size_file"
-    expected_size=$(cat "$size_file")
-    printf '%s\n' "$expected_size" | LC_ALL=C grep -Eq '^[1-9][0-9]*$' || {
-      echo "Invalid mirror size for $ASSET." >&2; exit 2;
-    }
+    checksum_file="$TEMP_ROOT/checksums.txt"
+    fetch "$ASSET_ROOT/$TAG/checksums.txt" "$checksum_file"
+    if [ "$(sed -n '1p' "$checksum_file")" != '# aeloon-checksums-v1' ] ||
+       [ "$(sed -n '2p' "$checksum_file")" != "# release=$TAG" ]; then
+      echo "Invalid mirror checksum index for $TAG." >&2; exit 2
+    fi
+    record=$(awk -v name="$ASSET" '
+      NR > 2 && NF == 3 && $3 == name { print $1 " " $2; count++ }
+      END { if (count != 1) exit 2 }
+    ' "$checksum_file") || { echo "Invalid mirror checksum for $ASSET." >&2; exit 2; }
+    expected_digest="sha256:${record%% *}"
+    expected_size=${record#* }
   else
     command -v jq >/dev/null 2>&1 || { echo "jq is required for direct GitHub installs; use the TUI installer." >&2; exit 2; }
     release_json="$TEMP_ROOT/release.json"
@@ -310,6 +309,13 @@ fi
 printf '%s\n' "$expected_digest" | LC_ALL=C grep -Eq '^sha256:[a-f0-9]{64}$' || {
   echo "Invalid SHA-256 for $ASSET." >&2; exit 2;
 }
+if [ -n "$expected_size" ]; then
+  printf '%s\n' "$expected_size" | LC_ALL=C grep -Eq '^[1-9][0-9]*$' || {
+    echo "Invalid size for $ASSET." >&2; exit 2;
+  }
+fi
+echo "Downloading aeloon-lite $VERSION from $DOWNLOAD_SOURCE..."
+fetch "$ASSET_URL" "$ARCHIVE"
 if [ -n "$expected_size" ] && [ "$(wc -c < "$ARCHIVE" | tr -d ' ')" != "$expected_size" ]; then
   echo "Downloaded size differs for $ASSET." >&2; exit 2
 fi

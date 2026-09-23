@@ -163,7 +163,10 @@ class InstallerTests(unittest.TestCase):
 
     def test_desktop_refuses_changed_mirror_digest(self) -> None:
         fixture = self._fixture("desktop", b"desktop-fixture")
-        Path(fixture["env"]["FIXTURE_CHECKSUM"]).write_text("0" * 64 + "  aeloon-lite-1.2.3-x86_64.deb\n")
+        Path(fixture["env"]["FIXTURE_CHECKSUMS"]).write_text(
+            "# aeloon-checksums-v1\n# release=v9.9.9\n"
+            + "0" * 64 + " 15 aeloon-lite-1.2.3-x86_64.deb\n"
+        )
         result = subprocess.run(
             ["sh", str(ROOT / "install.sh"), "--download-only", str(fixture["downloads"])],
             capture_output=True, text=True, env=fixture["env"], check=False,
@@ -846,10 +849,12 @@ class InstallerTests(unittest.TestCase):
             "draft":False, "prerelease":False,
             "assets":[{"name":name,"digest":digest,"size":len(payload)},
                 {"name":"aeloon-client-9.9.9.tar.gz","digest":digest,"size":len(payload)}]}))
-        checksum = root / "checksum"
-        checksum.write_text(f"{digest.removeprefix('sha256:')}  {name}\n", encoding="ascii")
-        size = root / "size"
-        size.write_text(f"{len(payload)}\n", encoding="ascii")
+        checksums = root / "checksums.txt"
+        checksums.write_text(
+            f"# aeloon-checksums-v1\n# release=v9.9.9\n"
+            f"{digest.removeprefix('sha256:')} {len(payload)} {name}\n",
+            encoding="ascii",
+        )
         write_executable(
             tools / "curl",
             """#!/bin/sh
@@ -869,8 +874,7 @@ case "$url" in
     cp "$FIXTURE_INSTALLER" "$output"
     ;;
   */channels/*/stable) cp "$FIXTURE_CHANNEL" "$output" ;;
-  *.sha256) cp "$FIXTURE_CHECKSUM" "$output" ;;
-  *.size) cp "$FIXTURE_SIZE" "$output" ;;
+  */checksums.txt) cp "$FIXTURE_CHECKSUMS" "$output" ;;
   */manifest.json) cp "$FIXTURE_RELEASE" "$output" ;;
   *api.github.com*) cp "$FIXTURE_RELEASE" "$output" ;;
   *)
@@ -890,8 +894,7 @@ esac
             "FIXTURE_CHANNEL": str(channel),
             "FIXTURE_ARTIFACT": str(artifact),
             "FIXTURE_RELEASE": str(release),
-            "FIXTURE_CHECKSUM": str(checksum),
-            "FIXTURE_SIZE": str(size),
+            "FIXTURE_CHECKSUMS": str(checksums),
             "FIXTURE_CURL_LOG": str(curl_log),
             "FIXTURE_INSTALL_LOG": str(install_log),
             "FIXTURE_INSTALLER": str(ROOT / "install-server.sh"),
