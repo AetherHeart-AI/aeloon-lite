@@ -89,8 +89,9 @@ different bytes. The manifest is always uploaded after every package and sidecar
 
 After a stable PR merges, `mirror-channels.yml` reads the then-current `main` copies of
 both stable files, requires matching OSS manifests, and updates the two channel objects.
-Rollback is a stable-file PR; versioned files remain intact. The installer workflow embeds
-the scripts at its own commit, tests and builds four targets, uploads them under
+Rollback is a stable-file PR; versioned files remain intact. After Distribution CI passes
+for an installer-source change on `main`, the installer workflow embeds the scripts at
+that commit, tests and builds four targets, uploads them under
 `installer/<commit>/<platform>/`, confirms both stable channels, and finally updates the
 fixed scripts and `download.html`. A superseded build cannot roll the page back.
 
@@ -99,13 +100,14 @@ fixed scripts and `download.html`. A superseded build cannot roll the page back.
 1. Configure RAM, GitHub variables, private origin, HTTPS, caching, and certificate alert.
 2. Run `mirror-release.yml` on `main` with `tag=v0.4.1`, the tag currently used by both
    stable files. Inspect the run for exact asset count, SHA-256, object sizes, and CRC-64.
-3. Run `mirror-channels.yml` on `main`. Compare CDN channel bytes with repository files.
-4. Run `publish-installer.yml` on `main`. It publishes the four native packages, scripts,
-   and `/download.html` only after the channel preflight passes.
-5. From outside the Alibaba Cloud account, fetch a full Desktop package and the Runtime
+   This bootstrap run also uploads both current stable files.
+3. Compare CDN channel bytes with repository files. After the feature PR merges and its
+   Distribution CI passes, `publish-installer.yml` automatically publishes the four native
+   packages, scripts, and `/download.html` after the channel preflight passes.
+4. From outside the Alibaba Cloud account, fetch a full Desktop package and the Runtime
    plus web-client pair through HTTPS and compare SHA-256 with the manifest. Check the
    fixed page, HTTP-to-HTTPS redirect, large-file transfer, and certificate expiry alert.
-6. On a disposable Linux host, use the Runtime mode and confirm the existing running
+5. On a disposable Linux host, use the Runtime mode and confirm the existing running
    service stays running and unchanged. The installer writes a versioned user directory
    and links commands; an administrator separately chooses any systemd service change.
 

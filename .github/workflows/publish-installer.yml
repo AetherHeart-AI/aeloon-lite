@@ -1,20 +1,9 @@
 name: Publish native installer to OSS
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - go.mod
-      - installer_main.go
-      - installer_main_test.go
-      - install.sh
-      - install.ps1
-      - install-server.sh
-      - assets/download.html.template
-      - tools/oss_mirror.py
-      - tools/publish_installer.py
-      - tools/setup_ossutil.sh
-  workflow_dispatch:
+  workflow_run:
+    workflows: [Distribution CI]
+    types: [completed]
 
 permissions:
   contents: read
@@ -26,16 +15,37 @@ concurrency:
 
 jobs:
   publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    env:
+      BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+      - name: Check whether installer sources changed
+        id: changes
+        run: |
+          if git diff --quiet HEAD^ HEAD -- \
+            go.mod installer_main.go installer_main_test.go install.sh install.ps1 install-server.sh \
+            assets/download.html.template tools/oss_mirror.py tools/publish_installer.py tools/setup_ossutil.sh; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: steps.changes.outputs.changed == 'true'
         with:
           go-version-file: go.mod
       - name: Test and build four native installer packages
+        if: steps.changes.outputs.changed == 'true'
         run: |
           set -euo pipefail
           test -z "$(gofmt -l installer_main.go installer_main_test.go)"
@@ -54,7 +64,7 @@ jobs:
             build_dir="$RUNNER_TEMP/aeloon-build-$platform"
             mkdir -p "$build_dir"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
-              -ldflags "-X main.buildCommit=$GITHUB_SHA" -o "$build_dir/$binary" .
+              -ldflags "-X main.buildCommit=$BUILD_SHA" -o "$build_dir/$binary" .
             if [[ "$os" == windows ]]; then
               (cd "$build_dir" && zip -q "$archive_dir/aeloon-installer-$platform.zip" "$binary")
               unzip -t "$archive_dir/aeloon-installer-$platform.zip"
@@ -64,14 +74,17 @@ jobs:
             fi
           done
       - name: Assume OSS mirror role through GitHub OIDC
+        if: steps.changes.outputs.changed == 'true'
         uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
         with:
           role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
           oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
           role-session-expiration: 3600
       - name: Install verified ossutil
+        if: steps.changes.outputs.changed == 'true'
         run: bash tools/setup_ossutil.sh
       - name: Publish immutable installers and fixed download page
+        if: steps.changes.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 tools/publish_installer.py --directory "$RUNNER_TEMP/aeloon-installer-archives" --commit "$GITHUB_SHA"
+        run: python3 tools/publish_installer.py --directory "$RUNNER_TEMP/aeloon-installer-archives" --commit "$BUILD_SHA"
