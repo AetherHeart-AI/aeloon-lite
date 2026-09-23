@@ -81,6 +81,15 @@ class MirrorTests(unittest.TestCase):
                 oss.upload_immutable(path, "releases/v0.4.1/archive")
         self.assertEqual(command.call_count, 1)
 
+    def test_crc64_uses_ossutil_v2_syntax(self):
+        oss = oss_mirror.Oss()
+        sample = self.assets / "sample"
+        sample.write_bytes(b"sample")
+        result = type("Result", (), {"stdout": "CRC64-ECMA : 295992936743767023\n"})()
+        with patch.object(oss, "command", return_value=result) as command:
+            self.assertEqual(oss.local_crc64(sample), "295992936743767023")
+        command.assert_called_once_with("hash", "crc64", str(sample), capture=True)
+
     def test_channels_wait_for_both_complete_manifests(self):
         directory = Path(self.temporary.name) / "channels"
         for product in ("desktop", "runtime"):

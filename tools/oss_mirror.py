@@ -105,8 +105,8 @@ class Oss:
         return dict(re.findall(r"^\s*([\w-]+)\s*:\s*(\S+)\s*$", result.stdout, re.MULTILINE))
 
     def local_crc64(self, path: Path) -> str:
-        output = self.command("hash", str(path), "--type=crc64", capture=True).stdout
-        match = re.search(r"CRC64[-\w]*\s*:\s*(\d+)", output, re.IGNORECASE)
+        output = self.command("hash", "crc64", str(path), capture=True).stdout
+        match = re.search(r"CRC64[^\n]*?(\d+)\s*$", output, re.IGNORECASE | re.MULTILINE)
         if not match:
             raise RuntimeError(f"Could not read local CRC-64 for {path.name}")
         return match.group(1)

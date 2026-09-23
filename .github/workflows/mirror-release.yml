@@ -24,14 +24,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install verified ossutil
+        run: bash tools/setup_ossutil.sh
+      - name: Check ossutil CRC-64 interface
+        run: |
+          printf aeloon > "$RUNNER_TEMP/aeloon-hash-smoke"
+          python3 -c 'import os; from pathlib import Path; from tools.oss_mirror import Oss; print(Oss().local_crc64(Path(os.environ["RUNNER_TEMP"]) / "aeloon-hash-smoke"))'
       - name: Assume OSS mirror role through GitHub OIDC
         uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
         with:
           role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
           oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
           role-session-expiration: 3600
-      - name: Install verified ossutil
-        run: bash tools/setup_ossutil.sh
       - name: Verify GitHub assets and fill missing OSS objects
         env:
           GH_TOKEN: ${{ github.token }}
