@@ -89,7 +89,8 @@ run checks the GitHub asset digest and size against the OSS object metadata, the
 matching packages without downloading them from GitHub or OSS. Older packages can be
 verified through their existing small `.sha256` sidecars and OSS size/CRC-64 headers; if
 neither proof exists, the mirror downloads the package to verify its SHA-256. The upload
-uses 16 MiB multipart chunks. A digest mismatch fails without overwriting the object.
+switches to multipart above 16 MiB with 16 MiB chunks and ten parallel parts. A digest
+mismatch fails without overwriting the object.
 The manifest is uploaded after all packages and `checksums.txt` verify.
 
 After a stable PR merges, `mirror-channels.yml` reads the then-current `main` copies of
