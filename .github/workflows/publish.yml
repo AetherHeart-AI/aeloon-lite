@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: distribution-publish-${{ github.event.client_payload.product || inputs.product }}
@@ -42,7 +43,7 @@ jobs:
   publish:
     name: Process ${{ github.event.client_payload.product || inputs.product }} ${{ github.event.client_payload.version || inputs.version }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -219,6 +220,16 @@ jobs:
           echo "runtime_commit=$runtime_commit" >> "$GITHUB_OUTPUT"
           echo "asset_dir=$asset_dir" >> "$GITHUB_OUTPUT"
 
+      - name: Assume OSS mirror role through GitHub OIDC
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        with:
+          role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
+          role-session-expiration: 3600
+
+      - name: Install verified ossutil
+        run: bash tools/setup_ossutil.sh
+
       - name: Publish unified distribution Release
         if: steps.source.outputs.product == 'desktop'
         env:
@@ -374,6 +385,7 @@ jobs:
               echo "Published asset differs; use a new Runtime version." >&2; exit 1;
             }
           done
+          python3 tools/oss_mirror.py release --tag "$tag" --asset-dir "$asset_dir" --allow-draft
           gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --latest=false
           ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
             --issues "$issues_json" --tag "$tag" \

@@ -10,11 +10,11 @@
 param(
   [string]$DownloadOnly,
   [string]$IfInstalled,
+  [string]$Source = "mirror",
   [switch]$Silent
 )
 
 $Repository = "AetherHeart-AI/aeloon-lite"
-$RawRoot = "https://raw.githubusercontent.com/$Repository/main"
 
 function Get-MetadataValue {
   param([string[]]$Lines, [string]$Key)
@@ -82,6 +82,16 @@ function Install-AeloonDesktop {
   if ($IfInstalled -and $IfInstalled -notin @("overwrite", "update", "skip")) {
     throw "-IfInstalled accepts overwrite, update, or skip."
   }
+  if ($Source -notin @("mirror", "github")) {
+    throw "-Source accepts mirror or github."
+  }
+  if ($Source -eq "mirror") {
+    $RawRoot = "https://downloads.aeloon-lite.aetherheart.com"
+    $AssetRoot = "$RawRoot/releases"
+  } else {
+    $RawRoot = "https://raw.githubusercontent.com/$Repository/main"
+    $AssetRoot = "https://github.com/$Repository/releases/download"
+  }
   if ($env:OS -ne "Windows_NT") { throw "install.ps1 runs on Windows only." }
   if ([Environment]::OSVersion.Version.Major -lt 10) {
     throw "aeloon-lite requires Windows 10 or later."
@@ -106,15 +116,15 @@ function Install-AeloonDesktop {
   }
   $product = Get-MetadataValue $channel "product"
   $version = Get-MetadataValue $channel "version"
-  $source = Get-MetadataValue $channel "source"
+  $sourceIdentity = Get-MetadataValue $channel "source"
   if ($product -ne "desktop") { throw "Release metadata is not for desktop." }
   if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
     throw "Stable desktop version is invalid."
   }
-  if ($source -notmatch '^AetherHeart-AI/aeloon-lite-ui@[0-9a-f]{40}$') {
+  if ($sourceIdentity -notmatch '^AetherHeart-AI/aeloon-lite-ui@[0-9a-f]{40}$') {
     throw "Desktop source identity is invalid."
   }
-  $sourceCommit = $source.Split("@")[1]
+  $sourceCommit = $sourceIdentity.Split("@")[1]
   if ($schema -eq "# aeloon-release-v2") {
     $tag = Get-MetadataValue $channel "release"
     if ($tag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
@@ -151,12 +161,40 @@ function Install-AeloonDesktop {
   }
 
   $asset = "aeloon-lite-$version-x64.exe"
-  $assetUrl = "https://github.com/$Repository/releases/download/$tag/$asset"
+  $assetUrl = "$AssetRoot/$tag/$asset"
   $temporary = Join-Path ([IO.Path]::GetTempPath()) ("aeloon-lite-" + [guid]::NewGuid().ToString("n"))
 
-  Write-Host "Downloading aeloon-lite $version from GitHub..."
+  if ($env:AELOON_EXPECTED_ASSET_SHA256) {
+    $expectedDigest = $env:AELOON_EXPECTED_ASSET_SHA256
+    $expectedSize = $env:AELOON_EXPECTED_ASSET_SIZE
+  } else {
+    if ($Source -eq "mirror") {
+      $metadata = Invoke-RestMethod -Uri "$AssetRoot/$tag/manifest.json"
+      if ($metadata.schema -ne 1 -or $metadata.tag -ne $tag) {
+        throw "Invalid mirror Release manifest."
+      }
+    } else {
+      $metadata = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/tags/$tag"
+      if ($metadata.tag_name -ne $tag -or $metadata.draft -or $metadata.prerelease) {
+        throw "Invalid GitHub Release identity."
+      }
+    }
+    $matches = @($metadata.assets | Where-Object { $_.name -eq $asset })
+    if ($matches.Count -ne 1) { throw "Release asset missing or ambiguous: $asset" }
+    $expectedDigest = $matches[0].digest
+    $expectedSize = $matches[0].size
+  }
+  if ($expectedDigest -notmatch '^sha256:[a-f0-9]{64}$') {
+    throw "Release asset digest unavailable: $asset"
+  }
+  Write-Host "Downloading aeloon-lite $version from $Source..."
   try {
     Invoke-WebRequest -Uri $assetUrl -OutFile $temporary -UseBasicParsing
+    if ($expectedSize -and (Get-Item -LiteralPath $temporary).Length -ne [long]$expectedSize) {
+      throw "Downloaded size differs for $asset."
+    }
+    $actualDigest = "sha256:" + (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualDigest -ne $expectedDigest) { throw "Downloaded digest differs for $asset." }
     if ($DownloadOnly) {
       $destination = $DownloadOnly
     } elseif ($env:USERPROFILE -and (Test-Path -LiteralPath "$env:USERPROFILE\Downloads")) {

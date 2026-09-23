@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aeloon 下载与安装</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { max-width: 760px; margin: 0 auto; padding: 48px 20px; color: #182333; line-height: 1.6; }
+    h1 { font-size: 2rem; margin-bottom: .2em; }
+    p { color: #49576b; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin: 26px 0; }
+    .card { border: 1px solid #d9e0e8; border-radius: 12px; padding: 18px; }
+    .card h2 { font-size: 1.1rem; margin: 0 0 8px; }
+    a.button { display: inline-block; background: #1767a9; color: white; border-radius: 7px; padding: 8px 13px; text-decoration: none; }
+    code { overflow-wrap: anywhere; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f2f5f8; padding: 14px; border-radius: 8px; }
+    small { color: #66758a; }
+  </style>
+</head>
+<body>
+  <h1>下载 Aeloon</h1>
+  <p>下载适合本机系统的终端安装器，运行后选择本机 Desktop 或 Linux 服务器 Runtime，再选择官方镜像或 GitHub。安装器只安装当前稳定版。</p>
+  <div class="grid">
+    <div class="card"><h2>Windows x64</h2><p>解压 ZIP，运行 <code>aeloon-installer.exe</code>。</p><a class="button" href="__WINDOWS_URL__">下载 Windows 版</a></div>
+    <div class="card"><h2>macOS ARM64</h2><p>解压后在终端运行 <code>./aeloon-installer</code>。</p><a class="button" href="__MACOS_URL__">下载 macOS 版</a></div>
+    <div class="card"><h2>Linux x86_64</h2><p>适用于大多数 Intel/AMD Linux 电脑和服务器。</p><a class="button" href="__LINUX_X64_URL__">下载 Linux x86_64 版</a></div>
+    <div class="card"><h2>Linux ARM64</h2><p>适用于 ARM64 Linux 电脑和服务器。</p><a class="button" href="__LINUX_ARM64_URL__">下载 Linux ARM64 版</a></div>
+  </div>
+  <h2>Linux 服务器终端</h2>
+  <p>在服务器上下载对应架构的包，解压后运行安装器，并在菜单中选择 Runtime Server。</p>
+  <pre>curl -fL '__LINUX_X64_URL__' -o aeloon-installer.tar.gz
+tar -xzf aeloon-installer.tar.gz
+./aeloon-installer</pre>
+  <p>ARM64 服务器将上述 URL 换成 <a href="__LINUX_ARM64_URL__">ARM64 包</a>。现有 systemd 服务和数据由服务器管理员单独管理。</p>
+  <h2>其他安装方式</h2>
+  <p>命令行脚本：<a href="/install.sh">macOS/Linux Desktop</a>、<a href="/install.ps1">Windows Desktop</a>、<a href="/install-server.sh">Linux Runtime Server</a>。脚本默认使用官方镜像，可指定 GitHub 来源。</p>
+  <p>首版可执行文件尚未签名。Windows SmartScreen 与 macOS Gatekeeper 可能要求你在系统安全设置中确认运行。请只从本页面的 HTTPS 地址下载。</p>
+  <small>安装器构建提交：<code>__COMMIT__</code></small>
+</body>
+</html>

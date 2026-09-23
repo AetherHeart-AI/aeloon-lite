@@ -1,0 +1,45 @@
+name: Mirror current stable channels to OSS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - channels/desktop/stable
+      - channels/runtime/stable
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: oss-stable-channels
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Assume OSS mirror role through GitHub OIDC
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        with:
+          role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
+          role-session-expiration: 3600
+      - name: Install verified ossutil
+        run: bash tools/setup_ossutil.sh
+      - name: Fetch latest main channel files and check the mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/aeloon-channels/desktop" "$RUNNER_TEMP/aeloon-channels/runtime"
+          for product in desktop runtime; do
+            gh api "repos/AetherHeart-AI/aeloon-lite/contents/channels/$product/stable?ref=main" \
+              --jq .content | base64 --decode > "$RUNNER_TEMP/aeloon-channels/$product/stable"
+          done
+          python3 tools/oss_mirror.py channels --directory "$RUNNER_TEMP/aeloon-channels"
