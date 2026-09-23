@@ -20,6 +20,10 @@ class RecordingOss:
     def __init__(self):
         self.uploaded = []
         self.manifests = {}
+        self.existing = set()
+
+    def verified_existing_digest(self, key, size, digest, legacy_digest_key):
+        return key in self.existing
 
     def upload_immutable(self, path, key, expected_digest=None, legacy_digest_key=None):
         self.uploaded.append((key, path.read_bytes()))
@@ -78,6 +82,55 @@ class MirrorTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 oss_mirror.mirror_release("v0.4.1", self.assets, True, self.oss)
         self.assertFalse(self.oss.uploaded)
+
+    def test_replay_skips_all_large_github_downloads(self):
+        names = oss_mirror.expected_names("v0.4.1", set())
+        release = self.create_release(names)
+        release["isDraft"] = False
+        self.oss.existing = {f"releases/v0.4.1/{name}" for name in names}
+        with patch.object(oss_mirror, "run", return_value=type("Result", (), {"stdout": json.dumps(release)})()) as command:
+            oss_mirror.mirror_release("v0.4.1", None, False, self.oss)
+        command.assert_called_once()
+        self.assertEqual([key for key, _ in self.oss.uploaded], [
+            "releases/v0.4.1/checksums.txt", "releases/v0.4.1/manifest.json",
+        ])
+
+    def test_replay_downloads_only_missing_github_assets(self):
+        names = oss_mirror.expected_names("v0.4.1", set())
+        release = self.create_release(names)
+        release["isDraft"] = False
+        missing = sorted(names)[0]
+        self.oss.existing = {f"releases/v0.4.1/{name}" for name in names - {missing}}
+        def fake_run(*args, **kwargs):
+            if args[:3] == ("gh", "release", "view"):
+                return type("Result", (), {"stdout": json.dumps(release)})()
+            self.assertEqual(args[:3], ("gh", "release", "download"))
+            self.assertEqual(args[-2:], ("--pattern", missing))
+            Path(args[args.index("--dir") + 1], missing).write_bytes(missing.encode())
+            return type("Result", (), {"stdout": ""})()
+        with patch.object(oss_mirror, "run", side_effect=fake_run) as command:
+            oss_mirror.mirror_release("v0.4.1", None, False, self.oss)
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual([key for key, _ in self.oss.uploaded], [
+            f"releases/v0.4.1/{missing}",
+            "releases/v0.4.1/checksums.txt", "releases/v0.4.1/manifest.json",
+        ])
+
+    def test_existing_digest_attestation_skips_download(self):
+        oss = oss_mirror.Oss()
+        digest = "sha256:" + "a" * 64
+        key = "releases/v0.4.1/archive"
+        metadata = {"Content-Length": "7", "X-Oss-Hash-Crc64ecma": "123", "X-Oss-Meta-Sha256": "a" * 64}
+        with patch.object(oss, "stat", return_value=metadata), patch.object(oss, "command") as command:
+            self.assertTrue(oss.verified_existing_digest(key, 7, digest, key + ".sha256"))
+        command.assert_not_called()
+
+    def test_existing_digest_attestation_rejects_changed_size(self):
+        oss = oss_mirror.Oss()
+        key = "releases/v0.4.1/archive"
+        with patch.object(oss, "stat", return_value={"Content-Length": "8", "X-Oss-Hash-Crc64ecma": "123"}):
+            with self.assertRaisesRegex(RuntimeError, "size differs"):
+                oss.verified_existing_digest(key, 7, "sha256:" + "a" * 64, key + ".sha256")
 
     def test_replay_refuses_different_existing_object(self):
         path = self.assets / "archive"

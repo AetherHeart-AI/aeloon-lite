@@ -137,6 +137,30 @@ class Oss:
             raise RuntimeError(f"OSS object CRC-64 differs: {key}")
         return metadata
 
+    def verified_existing_digest(
+        self, key: str, size: int, digest: str, legacy_digest_key: str,
+    ) -> bool:
+        """Use prior upload attestations to skip a GitHub asset download on replay."""
+        metadata = self.stat(key)
+        if metadata is None:
+            return False
+        if self.header(metadata, "Content-Length") != str(size):
+            raise RuntimeError(f"OSS object size differs: {key}")
+        crc64 = self.header(metadata, "X-Oss-Hash-Crc64ecma")
+        if not crc64 or not re.fullmatch(r"\d{1,20}", crc64):
+            return False
+        remote_digest = self.header(metadata, "X-Oss-Meta-Sha256")
+        if remote_digest is not None:
+            if remote_digest != digest.removeprefix("sha256:"):
+                raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
+            return True
+        if self.stat(legacy_digest_key) is None:
+            return False
+        name = key.rsplit("/", 1)[-1]
+        if self.read_text(legacy_digest_key) != f"{digest.removeprefix('sha256:')}  {name}\n":
+            raise RuntimeError(f"Refusing to trust different legacy digest: {key}")
+        return True
+
     def upload_immutable(
         self, path: Path, key: str, expected_digest: str | None = None,
         legacy_digest_key: str | None = None,
@@ -216,8 +240,7 @@ def mirror_release(tag: str, asset_dir: Path | None, allow_draft: bool, oss: Oss
         local = asset_dir or Path(temporary) / "assets"
         if asset_dir is None:
             local.mkdir()
-            run("gh", "release", "download", tag, "--repo", REPOSITORY, "--dir", str(local))
-        if {path.name for path in local.iterdir() if path.is_file()} != set(assets):
+        elif {path.name for path in local.iterdir() if path.is_file()} != set(assets):
             raise RuntimeError("Local assets do not match the official Release")
         manifest_assets = []
         for name in sorted(assets):
@@ -225,17 +248,40 @@ def mirror_release(tag: str, asset_dir: Path | None, allow_draft: bool, oss: Oss
             remote = assets[name]
             digest = remote.get("digest")
             size = remote.get("size")
-            if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest or "") or size != path.stat().st_size:
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest or "") or type(size) is not int or size < 1:
                 raise RuntimeError(f"Missing or mismatched GitHub asset metadata: {name}")
-            if sha256(path) != digest:
-                raise RuntimeError(f"GitHub asset digest differs: {name}")
             manifest_assets.append({"name": name, "size": size, "digest": digest})
 
-        for name in sorted(assets):
+        if asset_dir is not None:
+            for asset in manifest_assets:
+                path = local / asset["name"]
+                if path.stat().st_size != asset["size"] or sha256(path) != asset["digest"]:
+                    raise RuntimeError(f"GitHub asset digest differs: {asset['name']}")
+
+        pending = manifest_assets
+        if asset_dir is None:
+            pending = [asset for asset in manifest_assets if not oss.verified_existing_digest(
+                f"releases/{tag}/{asset['name']}", asset["size"], asset["digest"],
+                f"releases/{tag}/{asset['name']}.sha256",
+            )]
+            if pending:
+                patterns = [part for asset in pending for part in ("--pattern", asset["name"])]
+                run("gh", "release", "download", tag, "--repo", REPOSITORY,
+                    "--dir", str(local), *patterns)
+                if {path.name for path in local.iterdir() if path.is_file()} != {asset["name"] for asset in pending}:
+                    raise RuntimeError("Downloaded assets do not match the official Release")
+                for asset in pending:
+                    path = local / asset["name"]
+                    if path.stat().st_size != asset["size"] or sha256(path) != asset["digest"]:
+                        raise RuntimeError(f"GitHub asset digest differs: {asset['name']}")
+
+        for asset in pending:
+            name = asset["name"]
+            key = f"releases/{tag}/{name}"
+            legacy_key = f"{key}.sha256"
             oss.upload_immutable(
-                local / name, f"releases/{tag}/{name}",
-                expected_digest=assets[name]["digest"],
-                legacy_digest_key=f"releases/{tag}/{name}.sha256",
+                local / name, key,
+                expected_digest=asset["digest"], legacy_digest_key=legacy_key,
             )
         checksums = Path(temporary) / "checksums.txt"
         checksums.write_text(
