@@ -69,7 +69,7 @@ def content_type(name: str) -> str:
         return "application/json; charset=utf-8"
     if name.endswith(".html"):
         return "text/html; charset=utf-8"
-    if name.endswith((".sh", ".ps1", ".sha256")) or name == "stable":
+    if name.endswith((".sh", ".ps1", ".txt")) or name == "stable":
         return "text/plain; charset=utf-8"
     return "application/octet-stream"
 
@@ -122,35 +122,60 @@ class Oss:
             raise RuntimeError(f"Could not read local CRC-64 for {path.name}")
         return match.group(1)
 
-    def verify_object(self, path: Path, key: str) -> None:
-        metadata = self.stat(key)
+    @staticmethod
+    def header(metadata: dict[str, str], name: str) -> str | None:
+        return next((value for key, value in metadata.items() if key.lower() == name.lower()), None)
+
+    def verify_object(self, path: Path, key: str, metadata: dict[str, str] | None = None) -> dict[str, str]:
+        if metadata is None:
+            metadata = self.stat(key)
         if metadata is None:
             raise RuntimeError(f"OSS object is missing: {key}")
-        if metadata.get("Content-Length") != str(path.stat().st_size):
+        if self.header(metadata, "Content-Length") != str(path.stat().st_size):
             raise RuntimeError(f"OSS object size differs: {key}")
-        if metadata.get("X-Oss-Hash-Crc64ecma") != self.local_crc64(path):
+        if self.header(metadata, "X-Oss-Hash-Crc64ecma") != self.local_crc64(path):
             raise RuntimeError(f"OSS object CRC-64 differs: {key}")
+        return metadata
 
-    def upload_immutable(self, path: Path, key: str) -> None:
+    def upload_immutable(
+        self, path: Path, key: str, expected_digest: str | None = None,
+        legacy_digest_key: str | None = None,
+    ) -> None:
+        digest = (expected_digest or sha256(path)).removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(f"Invalid SHA-256 for {key}")
         existing = self.stat(key)
         if existing is not None:
+            self.verify_object(path, key, existing)
+            remote_digest = self.header(existing, "X-Oss-Meta-Sha256")
+            if remote_digest is not None:
+                if remote_digest != digest:
+                    raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
+                return
+            if legacy_digest_key and self.stat(legacy_digest_key) is not None:
+                expected = f"{digest}  {path.name}\n"
+                if self.read_text(legacy_digest_key) != expected:
+                    raise RuntimeError(f"Refusing to trust different legacy digest: {key}")
+                return
             with tempfile.TemporaryDirectory(prefix="aeloon-oss-compare-") as temporary:
                 downloaded = Path(temporary) / path.name
                 self.command(
                     "cp", self.url(key), str(downloaded), "--force", "--no-progress",
-                    "--parallel", "10",
+                    "--parallel", "10", "--part-size", "16M",
                 )
-                if sha256(downloaded) != sha256(path):
+                if sha256(downloaded).removeprefix("sha256:") != digest:
                     raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
-            self.verify_object(path, key)
             return
         self.command(
             "cp", str(path), self.url(key), "--ignore-existing", "--no-progress",
-            "--parallel", "10",
+            "--parallel", "10", "--part-size", "16M",
+            "--metadata", f"x-oss-meta-sha256={digest}",
             "--acl", "private", "--cache-control", IMMUTABLE_CACHE,
             "--content-type", content_type(path.name),
         )
-        self.verify_object(path, key)
+        uploaded = self.verify_object(path, key)
+        if self.header(uploaded, "X-Oss-Meta-Sha256") != digest:
+            raise RuntimeError(f"OSS object SHA-256 metadata differs: {key}")
 
     def upload_mutable(self, path: Path, key: str) -> None:
         self.command(
@@ -164,10 +189,13 @@ class Oss:
                 raise RuntimeError(f"OSS mutable object differs: {key}")
 
     def read_json(self, key: str) -> dict:
+        return json.loads(self.read_text(key))
+
+    def read_text(self, key: str) -> str:
         with tempfile.TemporaryDirectory(prefix="aeloon-oss-read-") as temporary:
-            path = Path(temporary) / "manifest.json"
+            path = Path(temporary) / "object"
             self.command("cp", self.url(key), str(path), "--force", "--no-progress")
-            return json.loads(path.read_text(encoding="utf-8"))
+            return path.read_text(encoding="utf-8")
 
 
 def mirror_release(tag: str, asset_dir: Path | None, allow_draft: bool, oss: Oss) -> None:
@@ -204,14 +232,21 @@ def mirror_release(tag: str, asset_dir: Path | None, allow_draft: bool, oss: Oss
             manifest_assets.append({"name": name, "size": size, "digest": digest})
 
         for name in sorted(assets):
-            oss.upload_immutable(local / name, f"releases/{tag}/{name}")
-            # POSIX desktop scripts can verify mirror downloads without jq.
-            checksum = Path(temporary) / f"{name}.sha256"
-            checksum.write_text(f"{assets[name]['digest'].removeprefix('sha256:')}  {name}\n", encoding="ascii")
-            oss.upload_immutable(checksum, f"releases/{tag}/{name}.sha256")
-            size = Path(temporary) / f"{name}.size"
-            size.write_text(f"{assets[name]['size']}\n", encoding="ascii")
-            oss.upload_immutable(size, f"releases/{tag}/{name}.size")
+            oss.upload_immutable(
+                local / name, f"releases/{tag}/{name}",
+                expected_digest=assets[name]["digest"],
+                legacy_digest_key=f"releases/{tag}/{name}.sha256",
+            )
+        checksums = Path(temporary) / "checksums.txt"
+        checksums.write_text(
+            "\n".join(
+                ["# aeloon-checksums-v1", f"# release={tag}"]
+                + [f"{asset['digest'].removeprefix('sha256:')} {asset['size']} {asset['name']}"
+                   for asset in manifest_assets]
+            ) + "\n",
+            encoding="ascii",
+        )
+        oss.upload_immutable(checksums, f"releases/{tag}/checksums.txt")
         manifest = Path(temporary) / "manifest.json"
         manifest.write_text(
             json.dumps({"schema": 1, "tag": tag, "assets": manifest_assets}, sort_keys=True, separators=(",", ":")) + "\n",
