@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -89,6 +91,23 @@ class MirrorTests(unittest.TestCase):
         with patch.object(oss, "command", return_value=result) as command:
             self.assertEqual(oss.local_crc64(sample), "295992936743767023")
         command.assert_called_once_with("hash", "crc64", str(sample), capture=True)
+
+    def test_oidc_temporary_credentials_reach_ossutil(self):
+        issued = {
+            "ALIBABA_CLOUD_ACCESS_KEY_ID": "STS.test-id",
+            "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "temporary-secret",
+            "ALIBABA_CLOUD_SECURITY_TOKEN": "temporary-token",
+        }
+        with patch.dict(os.environ, issued):
+            oss = oss_mirror.Oss()
+        with patch.object(oss_mirror.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as command:
+            oss.command("hash", "crc64", "sample")
+            oss.stat("releases/v0.4.1/sample")
+        for call in command.call_args_list:
+            env = call.kwargs["env"]
+            self.assertEqual(env["OSS_ACCESS_KEY_ID"], issued["ALIBABA_CLOUD_ACCESS_KEY_ID"])
+            self.assertEqual(env["OSS_ACCESS_KEY_SECRET"], issued["ALIBABA_CLOUD_ACCESS_KEY_SECRET"])
+            self.assertEqual(env["OSS_SESSION_TOKEN"], issued["ALIBABA_CLOUD_SECURITY_TOKEN"])
 
     def test_channels_wait_for_both_complete_manifests(self):
         directory = Path(self.temporary.name) / "channels"
