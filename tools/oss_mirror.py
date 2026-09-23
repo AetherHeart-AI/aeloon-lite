@@ -26,8 +26,8 @@ IMMUTABLE_CACHE = "public,max-age=2592000,immutable"
 MUTABLE_CACHE = "public,max-age=60"
 
 
-def run(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(args, text=True, capture_output=capture, check=False)
+def run(*args: str, capture: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(args, text=True, capture_output=capture, check=False, env=env)
     if result.returncode:
         detail = (result.stderr or result.stdout or "").strip()
         raise RuntimeError(f"{' '.join(args[:2])} failed: {detail}")
@@ -81,9 +81,19 @@ class Oss:
         self.endpoint = os.environ.get(
             "AELOON_OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com"
         )
+        # The OIDC action exports ALIBABA_CLOUD_*, while ossutil 2 reads OSS_*.
+        # Pass temporary credentials only through the subprocess environment.
+        self.env = os.environ.copy()
+        for source, target in (
+            ("ALIBABA_CLOUD_ACCESS_KEY_ID", "OSS_ACCESS_KEY_ID"),
+            ("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "OSS_ACCESS_KEY_SECRET"),
+            ("ALIBABA_CLOUD_SECURITY_TOKEN", "OSS_SESSION_TOKEN"),
+        ):
+            if source in self.env:
+                self.env[target] = self.env[source]
 
     def command(self, *args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
-        return run("ossutil", *args, "--region", self.region, "--endpoint", self.endpoint, capture=capture)
+        return run("ossutil", *args, "--region", self.region, "--endpoint", self.endpoint, capture=capture, env=self.env)
 
     def url(self, key: str) -> str:
         if key.startswith("/") or ".." in key.split("/"):
@@ -96,6 +106,7 @@ class Oss:
             text=True,
             capture_output=True,
             check=False,
+            env=self.env,
         )
         if result.returncode:
             output = result.stdout + result.stderr
