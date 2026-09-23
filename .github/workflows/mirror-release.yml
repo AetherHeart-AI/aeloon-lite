@@ -19,7 +19,7 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 125
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,7 +35,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
           oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
-          role-session-expiration: 3600
+          role-session-expiration: 7200
       - name: Verify GitHub assets and fill missing OSS objects
         env:
           GH_TOKEN: ${{ github.token }}
