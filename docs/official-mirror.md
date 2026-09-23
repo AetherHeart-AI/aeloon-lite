@@ -85,8 +85,9 @@ Immutable objects are `releases/<tag>/<asset>`, `releases/<tag>/checksums.txt`, 
 `releases/<tag>/manifest.json`. The text index lists each asset's SHA-256 and byte size
 for the POSIX Desktop script without requiring `jq`; the JSON manifest provides the same
 values to the other installers. New package objects also carry SHA-256 metadata. A repeat
-run verifies size, CRC-64, and that metadata, then skips matching packages without downloading
-them. Older packages can be verified through their existing small `.sha256` sidecars; if
+run checks the GitHub asset digest and size against the OSS object metadata, then skips
+matching packages without downloading them from GitHub or OSS. Older packages can be
+verified through their existing small `.sha256` sidecars and OSS size/CRC-64 headers; if
 neither proof exists, the mirror downloads the package to verify its SHA-256. The upload
 uses 16 MiB multipart chunks. A digest mismatch fails without overwriting the object.
 The manifest is uploaded after all packages and `checksums.txt` verify.
