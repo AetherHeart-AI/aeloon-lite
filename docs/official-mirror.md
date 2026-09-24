@@ -72,6 +72,8 @@ anyone who knows its URL. Keep credentials, test data, and private files out of 
    certificate owner before expiry. Set CDN cache rules for `releases/` and `installer/`
    versioned paths to at least 30 days; set `channels/`, root install scripts, and
    `/download.html` to 60 seconds. Confirm HTTPS and redirect from an external network.
+6. Enable OSS transfer acceleration on the `aeloon-lite` bucket before running the
+   official publisher or Release repair workflow.
 
 ## Automated flow
 
@@ -81,6 +83,9 @@ CRC-64 checks, writes `manifest.json` last, then publishes the GitHub Release an
 existing stable PR. An OSS failure leaves the Release draft and does not advance stable.
 Runtime-only Releases mirror six archives, plus the matched client archive when paired.
 Only a tested pair may advance Runtime stable. Candidate packages remain in Actions.
+The official publisher and Release repair workflow use the OSS transfer-acceleration
+endpoint. Objects still land in the same Beijing bucket under the same keys; CDN origin
+and public download URLs remain unchanged.
 
 The official publisher and repair workflow request fresh GitHub OIDC and Alibaba STS
 credentials when a session nears expiry. Multipart uploads keep an ossutil checkpoint
