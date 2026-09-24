@@ -47,6 +47,7 @@ jobs:
     env:
       AELOON_OSS_ROLE_ARN: ${{ vars.AELOON_OSS_ROLE_ARN }}
       AELOON_OSS_OIDC_PROVIDER_ARN: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
+      AELOON_OSS_ENDPOINT: https://oss-accelerate.aliyuncs.com
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
