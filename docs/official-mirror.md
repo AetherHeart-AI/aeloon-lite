@@ -82,6 +82,14 @@ existing stable PR. An OSS failure leaves the Release draft and does not advance
 Runtime-only Releases mirror six archives, plus the matched client archive when paired.
 Only a tested pair may advance Runtime stable. Candidate packages remain in Actions.
 
+The official publisher and repair workflow request fresh GitHub OIDC and Alibaba STS
+credentials when a session nears expiry. Multipart uploads keep an ossutil checkpoint
+for retry with fresh credentials if the token expires during transfer. Their job limit is
+six hours to cover the measured full-Release transfer; a failed run remains safe to
+replay because verified immutable objects are skipped and no manifest or stable pointer
+is published before every required object verifies. The short channel and installer
+workflows continue to use their existing one-hour OIDC action session.
+
 Immutable objects are `releases/<tag>/<asset>`, `releases/<tag>/checksums.txt`, and
 `releases/<tag>/manifest.json`. The text index lists each asset's SHA-256 and byte size
 for the POSIX Desktop script without requiring `jq`; the JSON manifest provides the same
@@ -126,5 +134,7 @@ overwrite a versioned key. Re-run `mirror-channels.yml` after a stable rollback 
 
 Sources: [GitHub OIDC subject format](https://docs.github.com/en/actions/reference/security/oidc),
 [Alibaba Cloud OIDC role trust](https://help.aliyun.com/en/ram/user-guide/create-a-ram-role-for-a-trusted-idp),
+[Alibaba Cloud STS OIDC exchange](https://help.aliyun.com/en/ram/developer-reference/api-sts-2015-04-01-assumerolewithoidc),
 [ossutil multipart permissions](https://help.aliyun.com/en/oss/developer-reference/cp-upload-file),
+[ossutil upload checkpoints](https://help.aliyun.com/en/oss/developer-reference/breakpoint-file-resumable),
 [CDN private OSS origin](https://help.aliyun.com/en/cdn/user-guide/grant-alibaba-cloud-cdn-access-permissions-on-private-oss-buckets).

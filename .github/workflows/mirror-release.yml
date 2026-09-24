@@ -19,7 +19,10 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 360
+    env:
+      AELOON_OSS_ROLE_ARN: ${{ vars.AELOON_OSS_ROLE_ARN }}
+      AELOON_OSS_OIDC_PROVIDER_ARN: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,12 +33,6 @@ jobs:
         run: |
           printf aeloon > "$RUNNER_TEMP/aeloon-hash-smoke"
           python3 -c 'import os; from pathlib import Path; from tools.oss_mirror import Oss; print(Oss().local_crc64(Path(os.environ["RUNNER_TEMP"]) / "aeloon-hash-smoke"))'
-      - name: Assume OSS mirror role through GitHub OIDC
-        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
-        with:
-          role-to-assume: ${{ vars.AELOON_OSS_ROLE_ARN }}
-          oidc-provider-arn: ${{ vars.AELOON_OSS_OIDC_PROVIDER_ARN }}
-          role-session-expiration: 3600
       - name: Verify GitHub assets and fill missing OSS objects
         env:
           GH_TOKEN: ${{ github.token }}
