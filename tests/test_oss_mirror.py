@@ -1,17 +1,21 @@
 """Release mirror gates must reject incomplete or changed public bytes."""
 
 import hashlib
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import oss_mirror
+import oss_oidc
 
 
 class RecordingOss:
@@ -206,6 +210,7 @@ class MirrorTests(unittest.TestCase):
         self.assertIn(("--parallel", "10"), list(zip(command.call_args.args, command.call_args.args[1:])))
         self.assertIn(("--part-size", "16M"), list(zip(command.call_args.args, command.call_args.args[1:])))
         self.assertIn(("--bigfile-threshold", "16M"), list(zip(command.call_args.args, command.call_args.args[1:])))
+        self.assertIn("--checkpoint-dir", command.call_args.args)
         self.assertIn(("--metadata", "sha256=" + hashlib.sha256(b"correct").hexdigest()),
                       list(zip(command.call_args.args, command.call_args.args[1:])))
         verify.assert_called_once_with(path, "releases/v0.4.1/archive")
@@ -235,6 +240,80 @@ class MirrorTests(unittest.TestCase):
             self.assertEqual(env["OSS_ACCESS_KEY_ID"], issued["ALIBABA_CLOUD_ACCESS_KEY_ID"])
             self.assertEqual(env["OSS_ACCESS_KEY_SECRET"], issued["ALIBABA_CLOUD_ACCESS_KEY_SECRET"])
             self.assertEqual(env["OSS_SESSION_TOKEN"], issued["ALIBABA_CLOUD_SECURITY_TOKEN"])
+
+    def test_fresh_oidc_and_sts_credentials_are_requested_without_logging_tokens(self):
+        requests = []
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            self.assertEqual(timeout, 30)
+            if len(requests) == 1:
+                return io.BytesIO(b'{"value":"private-oidc-token"}')
+            return io.BytesIO(json.dumps({"Credentials": {
+                "AccessKeyId": "STS.new", "AccessKeySecret": "private-secret",
+                "SecurityToken": "private-sts-token", "Expiration": "2030-01-01T00:00:00Z",
+            }}).encode())
+        with patch.dict(os.environ, {
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token?x=1",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private-request-token",
+        }), patch.object(oss_oidc.urllib.request, "urlopen", side_effect=fake_urlopen):
+            credentials = oss_oidc.request_credentials("role-arn", "provider-arn")
+        self.assertEqual(credentials.access_key_id, "STS.new")
+        self.assertEqual(credentials.security_token, "private-sts-token")
+        self.assertEqual(parse_qs(urlsplit(requests[0].full_url).query)["audience"], ["sts.aliyuncs.com"])
+        self.assertEqual(requests[0].get_header("Authorization"), "bearer private-request-token")
+        self.assertEqual(requests[1].full_url, "https://sts.aliyuncs.com/")
+        form = parse_qs(requests[1].data.decode())
+        self.assertEqual(form["OIDCToken"], ["private-oidc-token"])
+        self.assertEqual(form["RoleArn"], ["role-arn"])
+        self.assertEqual(form["OIDCProviderArn"], ["provider-arn"])
+
+    def test_oss_renews_credentials_before_expiry(self):
+        now = time.time()
+        credentials = [
+            oss_oidc.Credentials("STS.first", "secret-1", "token-1", now + 3600),
+            oss_oidc.Credentials("STS.second", "secret-2", "token-2", now + 7200),
+        ]
+        with patch.dict(os.environ, {
+            "AELOON_OSS_ROLE_ARN": "role-arn", "AELOON_OSS_OIDC_PROVIDER_ARN": "provider-arn",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private-request-token",
+        }), patch.object(oss_mirror, "request_credentials", side_effect=credentials) as request, \
+             patch.object(oss_mirror, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as command, \
+             patch.object(oss_mirror.time, "time", side_effect=[now, now + 3100]):
+            oss = oss_mirror.Oss()
+            oss.command("hash", "crc64", "first")
+            oss.command("hash", "crc64", "second")
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(command.call_args_list[0].kwargs["env"]["OSS_SESSION_TOKEN"], "token-1")
+        self.assertEqual(command.call_args_list[1].kwargs["env"]["OSS_SESSION_TOKEN"], "token-2")
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", command.call_args.kwargs["env"])
+
+    def test_expired_multipart_upload_resumes_with_same_checkpoint(self):
+        path = self.assets / "archive"
+        path.write_bytes(b"correct")
+        now = time.time()
+        credentials = [
+            oss_oidc.Credentials("STS.first", "secret-1", "token-1", now + 3600),
+            oss_oidc.Credentials("STS.second", "secret-2", "token-2", now + 3600),
+        ]
+        with patch.dict(os.environ, {
+            "AELOON_OSS_ROLE_ARN": "role-arn", "AELOON_OSS_OIDC_PROVIDER_ARN": "provider-arn",
+        }), patch.object(oss_mirror, "request_credentials", side_effect=credentials) as request, \
+             patch.object(oss_mirror, "run", side_effect=[
+                 RuntimeError("ossutil cp failed: SecurityTokenExpired"),
+                 subprocess.CompletedProcess([], 0, "", ""),
+             ]) as command:
+            oss = oss_mirror.Oss()
+            with patch.object(oss, "stat", return_value=None), \
+                 patch.object(oss, "verify_object", return_value={
+                     "X-Oss-Meta-Sha256": hashlib.sha256(b"correct").hexdigest(),
+                 }):
+                oss.upload_immutable(path, "releases/v0.4.1/archive")
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(command.call_count, 2)
+        checkpoints = [call.args[call.args.index("--checkpoint-dir") + 1] for call in command.call_args_list]
+        self.assertEqual(checkpoints[0], checkpoints[1])
+        self.assertEqual(command.call_args_list[0].kwargs["env"]["OSS_SESSION_TOKEN"], "token-1")
+        self.assertEqual(command.call_args_list[1].kwargs["env"]["OSS_SESSION_TOKEN"], "token-2")
 
     def test_channels_wait_for_both_complete_manifests(self):
         directory = Path(self.temporary.name) / "channels"

@@ -9,8 +9,15 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
+
+if __package__:
+    from .oss_oidc import request_credentials
+else:
+    from oss_oidc import request_credentials
 
 
 REPOSITORY = "AetherHeart-AI/aeloon-lite"
@@ -29,7 +36,7 @@ MUTABLE_CACHE = "public,max-age=60"
 def run(*args: str, capture: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(args, text=True, capture_output=capture, check=False, env=env)
     if result.returncode:
-        detail = (result.stderr or result.stdout or "").strip()
+        detail = "\n".join(part for part in (result.stderr, result.stdout) if part).strip()
         raise RuntimeError(f"{' '.join(args[:2])} failed: {detail}")
     return result
 
@@ -84,6 +91,13 @@ class Oss:
         # The OIDC action exports ALIBABA_CLOUD_*, while ossutil 2 reads OSS_*.
         # Pass temporary credentials only through the subprocess environment.
         self.env = os.environ.copy()
+        for name in ("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GH_TOKEN", "ISSUE_GH_TOKEN"):
+            self.env.pop(name, None)
+        self.role_arn = self.env.get("AELOON_OSS_ROLE_ARN", "")
+        self.provider_arn = self.env.get("AELOON_OSS_OIDC_PROVIDER_ARN", "")
+        if bool(self.role_arn) != bool(self.provider_arn):
+            raise RuntimeError("Both OSS OIDC role and provider ARNs are required")
+        self.credentials_expires_at = 0.0
         for source, target in (
             ("ALIBABA_CLOUD_ACCESS_KEY_ID", "OSS_ACCESS_KEY_ID"),
             ("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "OSS_ACCESS_KEY_SECRET"),
@@ -92,8 +106,32 @@ class Oss:
             if source in self.env:
                 self.env[target] = self.env[source]
 
+    def refresh_credentials(self, force: bool = False) -> None:
+        if not self.role_arn or (not force and time.time() + 600 < self.credentials_expires_at):
+            return
+        credentials = request_credentials(self.role_arn, self.provider_arn)
+        self.env["OSS_ACCESS_KEY_ID"] = credentials.access_key_id
+        self.env["OSS_ACCESS_KEY_SECRET"] = credentials.access_key_secret
+        self.env["OSS_SESSION_TOKEN"] = credentials.security_token
+        self.credentials_expires_at = credentials.expires_at
+
     def command(self, *args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
-        return run("ossutil", *args, "--region", self.region, "--endpoint", self.endpoint, capture=capture, env=self.env)
+        for attempt in range(6):
+            self.refresh_credentials(force=attempt > 0)
+            try:
+                result = run("ossutil", *args, "--region", self.region, "--endpoint", self.endpoint, capture=True, env=self.env.copy())
+            except RuntimeError as error:
+                if not self.role_arn or "SecurityTokenExpired" not in str(error) or attempt == 5:
+                    raise
+                print("OSS credential expired during transfer; renewing and resuming.", flush=True)
+                continue
+            if not capture:
+                if result.stdout:
+                    print(result.stdout, end="")
+                if result.stderr:
+                    print(result.stderr, end="", file=sys.stderr)
+            return result
+        raise AssertionError("unreachable")
 
     def url(self, key: str) -> str:
         if key.startswith("/") or ".." in key.split("/"):
@@ -101,19 +139,24 @@ class Oss:
         return f"oss://{self.bucket}/{key}"
 
     def stat(self, key: str) -> dict[str, str] | None:
-        result = subprocess.run(
-            ["ossutil", "stat", self.url(key), "--region", self.region, "--endpoint", self.endpoint],
-            text=True,
-            capture_output=True,
-            check=False,
-            env=self.env,
-        )
-        if result.returncode:
+        for attempt in range(2):
+            self.refresh_credentials(force=attempt > 0)
+            result = subprocess.run(
+                ["ossutil", "stat", self.url(key), "--region", self.region, "--endpoint", self.endpoint],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=self.env.copy(),
+            )
+            if result.returncode == 0:
+                return dict(re.findall(r"^\s*([\w-]+)\s*:\s*(\S+)\s*$", result.stdout, re.MULTILINE))
             output = result.stdout + result.stderr
             if re.search(r"NoSuchKey|404|ObjectNotExist", output, re.IGNORECASE):
                 return None
+            if self.role_arn and "SecurityTokenExpired" in output and attempt == 0:
+                continue
             raise RuntimeError(f"OSS stat failed for {key}: {output.strip()}")
-        return dict(re.findall(r"^\s*([\w-]+)\s*:\s*(\S+)\s*$", result.stdout, re.MULTILINE))
+        raise AssertionError("unreachable")
 
     def local_crc64(self, path: Path) -> str:
         output = self.command("hash", "crc64", str(path), capture=True).stdout
@@ -196,13 +239,16 @@ class Oss:
                 if sha256(downloaded).removeprefix("sha256:") != digest:
                     raise RuntimeError(f"Refusing to overwrite different OSS object: {key}")
             return
-        self.command(
-            "cp", str(path), self.url(key), "--ignore-existing", "--no-progress",
-            "--parallel", "10", "--part-size", "16M", "--bigfile-threshold", "16M",
-            "--metadata", f"sha256={digest}",
-            "--acl", "private", "--cache-control", IMMUTABLE_CACHE,
-            "--content-type", content_type(path.name),
-        )
+        # A multipart upload can outlast one STS session. Keep its checkpoint
+        # across credential renewals so completed parts are not uploaded again.
+        with tempfile.TemporaryDirectory(prefix="aeloon-oss-checkpoint-") as checkpoint:
+            self.command(
+                "cp", str(path), self.url(key), "--ignore-existing", "--no-progress",
+                "--parallel", "10", "--part-size", "16M", "--bigfile-threshold", "16M",
+                "--checkpoint-dir", checkpoint, "--metadata", f"sha256={digest}",
+                "--acl", "private", "--cache-control", IMMUTABLE_CACHE,
+                "--content-type", content_type(path.name),
+            )
         uploaded = self.verify_object(path, key)
         if self.sha256_metadata(uploaded) != digest:
             raise RuntimeError(f"OSS object SHA-256 metadata differs: {key}")
