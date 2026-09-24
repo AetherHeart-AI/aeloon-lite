@@ -11,6 +11,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -261,11 +262,33 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(credentials.security_token, "private-sts-token")
         self.assertEqual(parse_qs(urlsplit(requests[0].full_url).query)["audience"], ["sts.aliyuncs.com"])
         self.assertEqual(requests[0].get_header("Authorization"), "bearer private-request-token")
-        self.assertEqual(requests[1].full_url, "https://sts.aliyuncs.com/")
+        self.assertEqual(urlsplit(requests[1].full_url).netloc, "sts.aliyuncs.com")
+        query = parse_qs(urlsplit(requests[1].full_url).query)
+        self.assertEqual(query["Action"], ["AssumeRoleWithOIDC"])
+        self.assertEqual(query["Version"], ["2015-04-01"])
+        self.assertEqual(query["Format"], ["JSON"])
+        self.assertRegex(query["Timestamp"][0], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertNotIn("OIDCToken", query)
         form = parse_qs(requests[1].data.decode())
         self.assertEqual(form["OIDCToken"], ["private-oidc-token"])
         self.assertEqual(form["RoleArn"], ["role-arn"])
         self.assertEqual(form["OIDCProviderArn"], ["provider-arn"])
+        self.assertNotIn("Action", form)
+
+    def test_sts_error_reports_code_without_logging_response_message(self):
+        failure = HTTPError("https://sts.aliyuncs.com/", 400, "Bad Request", {}, io.BytesIO(
+            b'{"Code":"InvalidParameter.Timestamp","Message":"private-oidc-token"}'
+        ))
+        with patch.dict(os.environ, {
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private-request-token",
+        }), patch.object(oss_oidc.urllib.request, "urlopen", side_effect=[
+            io.BytesIO(b'{"value":"private-oidc-token"}'), failure,
+        ]):
+            with self.assertRaises(RuntimeError) as raised:
+                oss_oidc.request_credentials("role-arn", "provider-arn")
+        self.assertIn("HTTP 400 (InvalidParameter.Timestamp)", str(raised.exception))
+        self.assertNotIn("private-oidc-token", str(raised.exception))
 
     def test_oss_renews_credentials_before_expiry(self):
         now = time.time()

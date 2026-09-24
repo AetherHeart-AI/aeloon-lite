@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,15 @@ def _request_json(request: urllib.request.Request, service: str) -> dict:
         with urllib.request.urlopen(request, timeout=30) as response:
             value = json.load(response)
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f"{service} returned HTTP {error.code}") from None
+        code = ""
+        try:
+            value = json.loads(error.read(8192))
+            candidate = value.get("Code") if isinstance(value, dict) else None
+            if isinstance(candidate, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,127}", candidate):
+                code = f" ({candidate})"
+        except (OSError, ValueError):
+            pass
+        raise RuntimeError(f"{service} returned HTTP {error.code}{code}") from None
     except (OSError, ValueError) as error:
         raise RuntimeError(f"Could not read {service} response: {type(error).__name__}") from None
     if not isinstance(value, dict):
@@ -51,10 +60,13 @@ def request_credentials(role_arn: str, provider_arn: str) -> Credentials:
     if not isinstance(token, str) or not token:
         raise RuntimeError("GitHub OIDC response has no token")
 
-    form = urllib.parse.urlencode({
+    query = urllib.parse.urlencode({
         "Action": "AssumeRoleWithOIDC",
         "Version": "2015-04-01",
         "Format": "JSON",
+        "Timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    form = urllib.parse.urlencode({
         "OIDCProviderArn": provider_arn,
         "RoleArn": role_arn,
         "OIDCToken": token,
@@ -62,7 +74,7 @@ def request_credentials(role_arn: str, provider_arn: str) -> Credentials:
         "DurationSeconds": "3600",
     }).encode("ascii")
     sts = _request_json(urllib.request.Request(
-        "https://sts.aliyuncs.com/", data=form,
+        f"https://sts.aliyuncs.com/?{query}", data=form,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     ), "Alibaba Cloud STS")
     data = sts.get("Credentials")
