@@ -136,7 +136,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.AELOON_RELEASE_TOKEN }}
-          ISSUE_GH_TOKEN: ${{ steps.issue-app.outputs.token }}
           DESKTOP_VERSION: ${{ steps.source.outputs.version }}
           DESKTOP_COMMIT: ${{ steps.source.outputs.source_commit }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
@@ -326,7 +325,7 @@ jobs:
           if [[ -n "$previous_tag" ]]; then
             previous_commit="$(gh api \
               "repos/AetherHeart-AI/aeloon-lite-runtime/commits/$previous_tag" --jq .sha)"
-            ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py collect \
+            python3 tools/issue_flow.py collect \
               --range AetherHeart-AI/aeloon-lite-runtime "$previous_commit" "$SOURCE_COMMIT" \
               --output "$issues_json"
           else
@@ -384,7 +383,7 @@ jobs:
           done
           python3 tools/oss_mirror.py release --tag "$tag" --asset-dir "$asset_dir" --allow-draft
           gh release edit "$tag" --repo AetherHeart-AI/aeloon-lite --draft=false --latest=false
-          ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
+          python3 tools/issue_flow.py annotate-release \
             --issues "$issues_json" --tag "$tag" \
             --url "https://github.com/AetherHeart-AI/aeloon-lite/releases/tag/$tag"
 
