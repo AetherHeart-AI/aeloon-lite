@@ -104,7 +104,7 @@ for commit in "$previous_distribution_commit" "$distribution_commit"; do
 done
 
 public_issues_json="$scratch/public-issues.json"
-ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py collect \
+python3 tools/issue_flow.py collect \
   --range AetherHeart-AI/aeloon-lite-ui "$previous_desktop_commit" "$desktop_source_commit" \
   --range AetherHeart-AI/aeloon-lite-runtime "$previous_runtime_commit" "$runtime_source_commit" \
   --range "$DISTRIBUTION_REPOSITORY" "$previous_distribution_commit" "$distribution_commit" \
@@ -207,7 +207,7 @@ if [[ "$is_draft" == true ]]; then
   gh release edit "$tag" --repo "$DISTRIBUTION_REPOSITORY" --draft=false --latest
 fi
 
-ISSUE_GH_TOKEN="$ISSUE_GH_TOKEN" python3 tools/issue_flow.py annotate-release \
+python3 tools/issue_flow.py annotate-release \
   --issues "$public_issues_json" --tag "$tag" \
   --url "https://github.com/$DISTRIBUTION_REPOSITORY/releases/tag/$tag"
 

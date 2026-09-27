@@ -103,6 +103,7 @@ class InstallerTests(unittest.TestCase):
                 "-NonInteractive",
                 "-Command",
                 f"$script = Get-Content -Raw -LiteralPath '{ROOT / 'install.ps1'}'; "
+                "$IfInstalled = [string]::Empty; "
                 "foreach ($attempt in 1, 2) { "
                 "  try { Invoke-Expression $script; throw 'unexpected success' } "
                 "  catch { \"run ${attempt}: $($_.Exception.Message)\" } "
@@ -202,6 +203,11 @@ class InstallerTests(unittest.TestCase):
             "AELOON_EXPECTED_CLIENT_NAME": metadata["assets"][1]["name"],
             "AELOON_EXPECTED_CLIENT_SHA256": expected,
             "AELOON_EXPECTED_CLIENT_SIZE": str(len(b"runtime-fixture")),
+            # The direct metadata path must not be able to satisfy this test.
+            # The embedded TUI metadata file above is the only usable manifest.
+            "FIXTURE_RELEASE": str(
+                Path(fixture["release"]).with_suffix(".direct-unavailable.json")
+            ),
         })
         result = subprocess.run(
             ["sh", str(ROOT / "install-server.sh"), "--download-only", str(fixture["downloads"])],
